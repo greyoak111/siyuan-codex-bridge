@@ -20,7 +20,7 @@
 
 ## 在插件页管理级别
 
-个人插件源目录是 [`~/plugins/siyuan-notes`](/Users/sunxifeng/plugins/siyuan-notes)。插件页会显示这些技能：
+个人插件源目录是 [`~/plugins/siyuan-notes`](/Users/sunxifeng/plugins/siyuan-notes)。插件页会显示这些技能和一个轻量控制工具：
 
 - `$siyuan`：创作前检索思源并引用相关文档或块。
 - `$siyuan-readonly`：切换并保持只读级别。
@@ -28,9 +28,11 @@
 - `$siyuan-full`：切换到完整官方工具级别。
 - `$siyuan-policy`：查看当前级别和可用级别。
 
+`siyuan-control.show_siyuan_controls` 会显示可折叠的范围面板；它会在宿主支持时请求 PiP（通常由宿主放在右下），不支持时回退为对话内卡片。面板只负责选择本地权限范围，不写入思源工作日志。
+
 也可以直接在对话中说“查看思源操作级别”“切换思源为只读”“切换思源为创作”“切换思源为全功能”。这些技能调用插件自带的 `siyuan-control` 控制 MCP；代理本身仍会在每个 MCP 请求上重新检查策略，所以技能提示不是唯一安全边界。
 
-Codex 插件规范目前没有原生的 settings/preferences 页面。这里用技能和控制 MCP 实现插件页里的操作级别管理；若将来需要真正的点击开关，可以另做本机控制面板，但不必改变官方 MCP 或笔记数据格式。
+插件规范的设置页能力取决于宿主，因此权限选择由技能和控制 MCP 共同完成；面板不可用时仍可用对话命令完成同一流程，不改变官方 MCP 或笔记数据格式。打开并选定范围后，相关项目对话会按当前范围先检索思源文档/块，再决定是否提出或执行受控调整；纯无关问题不会强制查询。
 
 ## 启动、重启和关闭
 
@@ -76,7 +78,7 @@ chmod 600 ~/.codex/config.toml
 
 ## 审计和高风险能力
 
-代理把允许或拒绝的操作写入 [`audit/operations.jsonl`](/Users/sunxifeng/siyuan-codex-bridge/audit/operations.jsonl)。每行只记录时间、级别、工具、action 和决策，不记录参数、笔记正文、响应、请求头或 Token；日志权限为 600。
+代理把允许或拒绝的操作写入 [`audit/operations.jsonl`](/Users/sunxifeng/siyuan-codex-bridge/audit/operations.jsonl)。这是最小的本地安全审计，不是写入思源的工作日志；每行只记录时间、级别、工具、action 和决策，不记录参数、笔记正文、响应、请求头或 Token；日志权限为 600。
 
 官方 MCP 中的文件读写、导入导出、历史回滚、仓库检出、同步、任意 HTTP、网页访问、解压和 SQL 都属于高影响能力。`full` 会让它们可用；执行前仍应明确目标并让客户端按 `writes` 配置处理，同时由本地代理执行 action 级策略检查。不要把官方 HTTP 端点直接添加到另一个会自动放行写操作的客户端，否则会绕过本地策略代理。
 

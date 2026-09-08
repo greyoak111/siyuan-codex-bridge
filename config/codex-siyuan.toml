@@ -22,3 +22,5 @@ audit_file = "/Users/sunxifeng/siyuan-codex-bridge/audit/operations.jsonl"
 # readonly  = search/read only
 # authoring = readonly plus document/block/attribute/daily-note content writes
 # full      = all official SiYuan MCP actions
+# The plugin skills proactively search relevant SiYuan notes for project turns;
+# they do not create a work log in SiYuan.

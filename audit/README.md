@@ -6,5 +6,7 @@ profile, the aggregate tool name, the action name, and the decision.
 
 The audit stream deliberately omits arguments, note content, response bodies,
 request headers, and the SiYuan API token. The file is created with mode 600
-and is ignored by git. It is useful for reviewing which operation level was in
-effect without turning the audit log into a copy of the workspace.
+and is ignored by git. It is a minimal local security audit, not a work log and
+never a record written into SiYuan; it is useful for reviewing which operation
+level was in effect without turning the audit stream into a copy of the
+workspace.

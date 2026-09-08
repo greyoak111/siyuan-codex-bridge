@@ -70,9 +70,12 @@ def launcher_round_trip():
         requests = [
             {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "policy-test", "version": "1"}}},
             {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
-            {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "set_siyuan_policy", "arguments": {"profile": "readonly"}}},
-            {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "get_siyuan_policy", "arguments": {}}},
-            {"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "set_siyuan_policy", "arguments": {"profile": original}}},
+            {"jsonrpc": "2.0", "id": 3, "method": "resources/list", "params": {}},
+            {"jsonrpc": "2.0", "id": 4, "method": "resources/read", "params": {"uri": "ui://siyuan/controls-v1.html"}},
+            {"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "show_siyuan_controls", "arguments": {}}},
+            {"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "set_siyuan_policy", "arguments": {"profile": "readonly"}}},
+            {"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "get_siyuan_policy", "arguments": {}}},
+            {"jsonrpc": "2.0", "id": 8, "method": "tools/call", "params": {"name": "set_siyuan_policy", "arguments": {"profile": original}}},
         ]
         assert proc.stdin is not None and proc.stdout is not None
         for request in requests:
@@ -84,6 +87,25 @@ def launcher_round_trip():
             response = json.loads(line)
             if "error" in response:
                 raise AssertionError("policy control server returned an error")
+            result = response.get("result") or {}
+            if request["method"] == "tools/list":
+                names = {tool.get("name") for tool in result.get("tools", [])}
+                if "show_siyuan_controls" not in names:
+                    raise AssertionError("tools/list omitted show_siyuan_controls")
+            elif request["method"] == "resources/list":
+                resources = result.get("resources", [])
+                if not any(resource.get("uri") == "ui://siyuan/controls-v1.html" for resource in resources):
+                    raise AssertionError("resources/list omitted the controls resource")
+            elif request["method"] == "resources/read":
+                contents = result.get("contents", [])
+                if not contents or contents[0].get("mimeType") != "text/html;profile=mcp-app":
+                    raise AssertionError("resources/read did not return an MCP Apps HTML resource")
+            elif request["method"] == "tools/call" and request["params"]["name"] == "show_siyuan_controls":
+                structured = result.get("structuredContent") or {}
+                if structured.get("profile") not in {"readonly", "authoring", "full"}:
+                    raise AssertionError("show_siyuan_controls returned no policy snapshot")
+                if (result.get("_meta") or {}).get("ui", {}).get("resourceUri") != "ui://siyuan/controls-v1.html":
+                    raise AssertionError("show_siyuan_controls omitted its UI resource metadata")
         observed = json.loads(POLICY.read_text(encoding="utf-8")).get("profile")
         if observed != original:
             raise AssertionError("policy control server did not restore the original profile")
