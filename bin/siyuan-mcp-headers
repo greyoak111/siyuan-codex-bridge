@@ -1,0 +1,13 @@
+#!/bin/sh
+# Secure helper: validates the token without printing it. The proxy reads .env directly.
+set -eu
+BRIDGE_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+ENV_FILE="$BRIDGE_DIR/.env"
+[ -r "$ENV_FILE" ] || { echo "Missing $ENV_FILE" >&2; exit 1; }
+TOKEN=$(sed -n 's/^SIYUAN_API_TOKEN=//p' "$ENV_FILE" | head -n1)
+case "$TOKEN" in
+  ""|PASTE_YOUR_SIYUAN_API_TOKEN_HERE) echo "SIYUAN_API_TOKEN is not configured" >&2; exit 2;;
+esac
+unset TOKEN
+# Deliberately no stdout: prevents accidental token disclosure.
+exit 0
