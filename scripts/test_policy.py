@@ -105,7 +105,15 @@ def launcher_round_trip():
                 if not contents or contents[0].get("mimeType") != "text/html;profile=mcp-app":
                     raise AssertionError("resources/read did not return an MCP Apps HTML resource")
                 html = contents[0].get("text", "")
-                for marker in ("ui/initialize", "appCapabilities", "ui/update-model-context", "tools/call"):
+                for marker in (
+                    "ui/initialize",
+                    "appCapabilities",
+                    "ui/update-model-context",
+                    "ui/request-display-mode",
+                    "initialSnapshot",
+                    "tools/call",
+                    "calc(100vw - 20px)",
+                ):
                     if marker not in html:
                         raise AssertionError(f"controls UI is missing {marker}")
             elif request["method"] == "tools/call" and request["params"]["name"] == "show_siyuan_controls":

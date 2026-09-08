@@ -8,7 +8,7 @@
 
 ## 能力和操作级别
 
-思源官方 MCP 的完整工具目录会透传给 Codex。当前本机 SiYuan 3.8.3 的官方端点实测返回 29 个顶层聚合工具；每个工具再通过 `action` 选择读取、写入、管理、导入导出、同步或网络动作。
+思源官方 MCP 的完整工具目录会透传给 Codex。具体版本和工具数量以每次本机端点探测为准；官方端点通常返回按 `action` 选择读取、写入、管理、导入导出、同步或网络动作的聚合工具。
 
 本地代理按每一次 `tools/call` 读取 [操作策略文件](/Users/sunxifeng/siyuan-codex-bridge/config/siyuan-policy.json)，支持三个级别：
 
