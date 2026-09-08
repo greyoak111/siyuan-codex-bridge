@@ -89,10 +89,18 @@ def launcher_round_trip():
             if "error" in response:
                 raise AssertionError("policy control server returned an error")
             result = response.get("result") or {}
-            if request["method"] == "tools/list":
+            if request["method"] == "initialize":
+                extensions = result.get("capabilities", {}).get("extensions", {})
+                ui_capability = extensions.get("io.modelcontextprotocol/ui", {})
+                if "text/html;profile=mcp-app" not in ui_capability.get("mimeTypes", []):
+                    raise AssertionError("initialize omitted MCP Apps capability")
+            elif request["method"] == "tools/list":
                 names = {tool.get("name") for tool in result.get("tools", [])}
                 if "show_siyuan_controls" not in names:
                     raise AssertionError("tools/list omitted show_siyuan_controls")
+                show_tool = next(tool for tool in result.get("tools", []) if tool.get("name") == "show_siyuan_controls")
+                if show_tool.get("annotations", {}).get("readOnlyHint") is not True:
+                    raise AssertionError("show_siyuan_controls is not annotated readonly")
             elif request["method"] == "resources/list":
                 resources = result.get("resources", [])
                 if not any(resource.get("uri") == "ui://siyuan/controls-v1.html" for resource in resources):
@@ -104,8 +112,13 @@ def launcher_round_trip():
                 contents = result.get("contents", [])
                 if not contents or contents[0].get("mimeType") != "text/html;profile=mcp-app":
                     raise AssertionError("resources/read did not return an MCP Apps HTML resource")
+                csp = contents[0].get("_meta", {}).get("ui", {}).get("csp", {})
+                if csp.get("connectDomains") != [] or csp.get("resourceDomains") != []:
+                    raise AssertionError("controls UI did not declare an empty CSP allowlist")
                 html = contents[0].get("text", "")
                 for marker in (
+                    "2026-01-26",
+                    "2025-06-18",
                     "ui/initialize",
                     "appCapabilities",
                     "ui/update-model-context",
