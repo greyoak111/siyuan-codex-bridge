@@ -71,11 +71,12 @@ def launcher_round_trip():
             {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "policy-test", "version": "1"}}},
             {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
             {"jsonrpc": "2.0", "id": 3, "method": "resources/list", "params": {}},
-            {"jsonrpc": "2.0", "id": 4, "method": "resources/read", "params": {"uri": "ui://siyuan/controls-v1.html"}},
-            {"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "show_siyuan_controls", "arguments": {}}},
-            {"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "set_siyuan_policy", "arguments": {"profile": "readonly"}}},
-            {"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "get_siyuan_policy", "arguments": {}}},
-            {"jsonrpc": "2.0", "id": 8, "method": "tools/call", "params": {"name": "set_siyuan_policy", "arguments": {"profile": original}}},
+            {"jsonrpc": "2.0", "id": 4, "method": "resources/templates/list", "params": {}},
+            {"jsonrpc": "2.0", "id": 5, "method": "resources/read", "params": {"uri": "ui://siyuan/controls-v1.html"}},
+            {"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "show_siyuan_controls", "arguments": {}}},
+            {"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "set_siyuan_policy", "arguments": {"profile": "readonly"}}},
+            {"jsonrpc": "2.0", "id": 8, "method": "tools/call", "params": {"name": "get_siyuan_policy", "arguments": {}}},
+            {"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {"name": "set_siyuan_policy", "arguments": {"profile": original}}},
         ]
         assert proc.stdin is not None and proc.stdout is not None
         for request in requests:
@@ -96,10 +97,17 @@ def launcher_round_trip():
                 resources = result.get("resources", [])
                 if not any(resource.get("uri") == "ui://siyuan/controls-v1.html" for resource in resources):
                     raise AssertionError("resources/list omitted the controls resource")
+            elif request["method"] == "resources/templates/list":
+                if result.get("resourceTemplates") != []:
+                    raise AssertionError("resources/templates/list returned an unexpected template")
             elif request["method"] == "resources/read":
                 contents = result.get("contents", [])
                 if not contents or contents[0].get("mimeType") != "text/html;profile=mcp-app":
                     raise AssertionError("resources/read did not return an MCP Apps HTML resource")
+                html = contents[0].get("text", "")
+                for marker in ("ui/initialize", "appCapabilities", "ui/update-model-context", "tools/call"):
+                    if marker not in html:
+                        raise AssertionError(f"controls UI is missing {marker}")
             elif request["method"] == "tools/call" and request["params"]["name"] == "show_siyuan_controls":
                 structured = result.get("structuredContent") or {}
                 if structured.get("profile") not in {"readonly", "authoring", "full"}:
