@@ -1,0 +1,24 @@
+# Concrete Codex entry for the local SiYuan official MCP bridge.
+# Authentication is read only from /Users/sunxifeng/siyuan-codex-bridge/.env (mode 600).
+
+[mcp_servers.siyuan]
+command = "/Users/sunxifeng/siyuan-codex-bridge/bin/siyuan-mcp-stdio"
+args = []
+enabled = true
+startup_timeout_sec = 30
+default_tools_approval_mode = "writes"
+
+[policy]
+transport = "stdio"
+upstream = "http://127.0.0.1:6806/mcp"
+default_profile = "full"
+write_requires_approval = true
+profiles = ["readonly", "authoring", "full"]
+policy_file = "/Users/sunxifeng/siyuan-codex-bridge/config/siyuan-policy.json"
+audit_file = "/Users/sunxifeng/siyuan-codex-bridge/audit/operations.jsonl"
+
+# No client-side tool list filter is used. The complete official catalog is
+# visible, and the bridge checks the selected profile on every tools/call:
+# readonly  = search/read only
+# authoring = readonly plus document/block/attribute/daily-note content writes
+# full      = all official SiYuan MCP actions
