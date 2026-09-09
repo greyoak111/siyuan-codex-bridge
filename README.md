@@ -1,5 +1,7 @@
 # Codex ↔ SiYuan 官方 MCP 桥接
 
+完整的当前操作说明（覆盖官方 29 个能力组）见[《思源官方 MCP 使用说明》](/Users/sunxifeng/siyuan-codex-bridge/docs/思源官方MCP使用说明.md)。
+
 这个本地桥接把 Codex Desktop、Codex CLI 和 IDE 连接到思源笔记内置的官方 MCP。STDIO 代理只把 MCP 请求转发到 `http://127.0.0.1:6806/mcp`，并在请求头中补充 API Token；它不解析或改写 `.sy` 文件，也不直接操作 `siyuan.db`。
 
 ## 唯一需要手工填写的值
