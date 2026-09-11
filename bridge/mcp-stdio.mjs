@@ -15,7 +15,9 @@
  * Because SiYuan is a desktop app that gets closed, the bridge answers the MCP
  * handshake and `tools/list` itself: `initialize` goes upstream when the app is
  * there and is answered locally when it is not, and the tool catalog comes from
- * upstream when reachable and from the last catalog this bridge saw otherwise.
+ * upstream when reachable, from this reader's own cache next, and from the
+ * snapshot shipped in the package last — so a first run before SiYuan has ever
+ * been opened still shows what the plugin can do.
  * A client registers a server's tools only if that first handshake succeeds and
  * never retries a server it could not reach, so without this a session started
  * while SiYuan was shut would silently lose its tools. Calls are the opposite:
@@ -280,6 +282,31 @@ function readToolsCache() {
   return Array.isArray(cached?.tools) && cached.tools.length > 0 ? cached : undefined
 }
 
+/**
+ * The catalog shipped with the package.
+ *
+ * A session started before SiYuan has ever been reached — a fresh install, a
+ * machine where the app has not been opened yet — would otherwise list no tools
+ * at all, which reads as "this plugin does nothing" rather than "the app is
+ * closed". The snapshot only ever fills that hole: a live catalog and the
+ * reader's own cache both outrank it, and it is replaced the first time SiYuan
+ * answers. Refresh it with `--dump-catalog`.
+ */
+function readToolsSnapshot() {
+  const snapshot = readJsonFile(fileURLToPath(new URL('./tools-snapshot.json', import.meta.url)))
+  return Array.isArray(snapshot?.tools) && snapshot.tools.length > 0 ? snapshot : undefined
+}
+
+/** Name where a served catalog came from, for the client's log and for the doctor. */
+function describeCatalog(cached, snapshot) {
+  if (cached !== undefined) return `cached ${cached.fetchedAt} while SiYuan was unreachable`
+  if (snapshot !== undefined) {
+    const from = snapshot.source?.name === undefined ? 'an earlier SiYuan' : `${snapshot.source.name} ${snapshot.source.version ?? ''}`.trim()
+    return `built-in snapshot from ${from} (${snapshot.tools.length} tools), used until SiYuan answers once`
+  }
+  return 'SiYuan has not been reachable and no built-in snapshot is present'
+}
+
 function writeToolsCache(result) {
   if (!Array.isArray(result?.tools) || result.tools.length === 0) return
   const path = toolsCacheFile()
@@ -420,9 +447,13 @@ async function doctor(config) {
     `endpoint: ${config.mcpUrl}`,
     `token: ${config.token ? `present (from ${config.tokenSource})` : 'MISSING — set it in the config file or in SiYuan itself'}`,
     `operation profile: ${profile} (${PROFILE_SUMMARY[profile]})`,
-    `tool catalog: ${readToolsCache() === undefined
-      ? 'no cache yet — the first session with SiYuan running fills it'
-      : `${readToolsCache().tools.length} tools cached at ${readToolsCache().fetchedAt}`}`,
+    `tool catalog: ${(() => {
+      const cached = readToolsCache()
+      const snapshot = readToolsSnapshot()
+      const source = cached ?? snapshot
+      if (source === undefined) return 'no cache and no built-in snapshot'
+      return `${source.tools.length} tools — ${describeCatalog(cached, cached === undefined ? snapshot : undefined)}`
+    })()}`,
     ...config.notes.map((note) => `note: ${note}`),
   ]
   for (const line of report) process.stdout.write(`${line}\n`)
@@ -460,6 +491,41 @@ async function main() {
 
   if (process.argv.includes('--doctor')) {
     process.exitCode = await doctor(config)
+    return
+  }
+
+  // Refresh the shipped snapshot: the live catalog plus where it came from.
+  if (process.argv.includes('--dump-catalog')) {
+    if (!config.token) {
+      process.stderr.write('no SiYuan API token found; nothing to dump\n')
+      process.exitCode = 2
+      return
+    }
+    const upstream = createUpstream(config)
+    const handshake = await upstream.send({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'initialize',
+      params: { protocolVersion: DEFAULT_PROTOCOL_VERSION, capabilities: {}, clientInfo: bridgeIdentity() },
+    })
+    if (handshake.unreachable !== undefined || handshake.reply?.error !== undefined) {
+      process.stderr.write(`cannot dump the catalog: ${handshake.unreachable ?? handshake.reply.error.message}\n`)
+      process.exitCode = 3
+      return
+    }
+    const listed = (await upstream.send({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} })).reply
+    const tools = listed?.result?.tools
+    if (!Array.isArray(tools) || tools.length === 0) {
+      process.stderr.write('SiYuan answered tools/list with no tools; refusing to write an empty snapshot\n')
+      process.exitCode = 3
+      return
+    }
+    process.stdout.write(`${JSON.stringify({
+      note: 'Snapshot of SiYuan\'s own MCP tool catalog, used only until a live catalog is available. Refresh with: node bridge/mcp-stdio.mjs --dump-catalog > bridge/tools-snapshot.json',
+      generatedAt: new Date().toISOString(),
+      source: handshake.reply?.result?.serverInfo ?? { name: 'SiYuan' },
+      tools,
+    }, null, 1)}\n`)
     return
   }
 
@@ -539,14 +605,13 @@ async function main() {
         }
       }
       const cached = readToolsCache()
+      const snapshot = cached === undefined ? readToolsSnapshot() : undefined
       write({
         jsonrpc: '2.0',
         id: message.id,
         result: {
-          tools: cached?.tools ?? [],
-          _meta: cached === undefined
-            ? { 'dsh-siyuan/catalog': 'SiYuan has not been reachable yet, so no tool catalog has been cached. Open SiYuan once.' }
-            : { 'dsh-siyuan/catalog': `cached ${cached.fetchedAt} while SiYuan was unreachable` },
+          tools: (cached ?? snapshot)?.tools ?? [],
+          _meta: { 'dsh-siyuan/catalog': describeCatalog(cached, snapshot) },
         },
       })
       return

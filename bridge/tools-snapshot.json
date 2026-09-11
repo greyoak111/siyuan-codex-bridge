@@ -1,0 +1,1358 @@
+{
+ "note": "Snapshot of SiYuan's own MCP tool catalog, used only until a live catalog is available. Refresh with: node bridge/mcp-stdio.mjs --dump-catalog > bridge/tools-snapshot.json",
+ "generatedAt": "2026-09-11T19:38:38.661Z",
+ "source": {
+  "name": "SiYuan",
+  "version": "3.8.3"
+ },
+ "tools": [
+  {
+   "description": "Asset management. Actions: upload(id, files=comma-separated absolute paths), create_html(id, html, name?, parentID?, previousID?, nextID?), unused(), clean(path?), stat(path). create_html writes an HTML asset and inserts a sandboxed IFrame block in one operation.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "action": {
+      "type": "string",
+      "description": "Operation",
+      "enum": [
+       "upload",
+       "create_html",
+       "unused",
+       "clean",
+       "stat"
+      ]
+     },
+     "files": {
+      "type": "string",
+      "description": "Comma-separated absolute file paths (for upload)"
+     },
+     "html": {
+      "type": "string",
+      "description": "HTML document content (for create_html, maximum 2 MiB)"
+     },
+     "id": {
+      "type": "string",
+      "description": "Document block ID (for upload, create_html)"
+     },
+     "name": {
+      "type": "string",
+      "description": "HTML asset filename ending in .html or .htm (for create_html, default component.html)"
+     },
+     "nextID": {
+      "type": "string",
+      "description": "Next sibling block ID (for create_html)"
+     },
+     "notebook": {
+      "type": "string",
+      "description": "Notebook ID that owns the target document; required for encrypted notebooks"
+     },
+     "parentID": {
+      "type": "string",
+      "description": "Parent block ID (for create_html, defaults to the document ID)"
+     },
+     "path": {
+      "type": "string",
+      "description": "Single unused asset path to remove, relative to data directory (for clean, optional). Use as returned by the unused action, e.g. assets/image/xxx.png."
+     },
+     "previousID": {
+      "type": "string",
+      "description": "Previous sibling block ID (for create_html)"
+     }
+    },
+    "required": [
+     "action"
+    ]
+   },
+   "name": "asset"
+  },
+  {
+   "description": "Block custom-attribute operations. Actions: get(id), set(id, attrs object), batch-get(ids comma-separated).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "action": {
+      "type": "string",
+      "description": "Operation",
+      "enum": [
+       "get",
+       "set",
+       "batch-get"
+      ]
+     },
+     "attrs": {
+      "type": "object",
+      "description": "Attribute key-value pairs (for set).\nCommon attributes:\n- icon: emoji hex codepoint like \"1f4ca\", emoji character like \"📊\", custom image path like \"1/b3log.png\", network image URL like \"https://example.com/icon.png\", or dynamic icon URL like \"api/icon/getDynamicIcon?type=8&color=%23d23f31&content=SiYuan&id=xxx\"\n- title-img: CSS format like 'background-image:url(\"assets/example.jpg\")', NOT a bare asset path\n- tags: comma-separated tag names"
+     },
+     "id": {
+      "type": "string",
+      "description": "Block ID"
+     },
+     "ids": {
+      "type": "string",
+      "description": "Comma-separated block IDs (for batch-get)"
+     }
+    },
+    "required": [
+     "action"
+    ]
+   },
+   "name": "attr"
+  },
+  {
+   "description": "Block operations. Actions: get(id), get_kramdown(id), get_children(id), tree_stat(id, by document), dom(id), insert(data, dataType, parentID?, nextID?, previousID?), append(data, dataType, parentID) / prepend(...) add a NEW child and return its ID — use after block.update when both modifying and adding, update(id, data, dataType, lockType?) replaces ONE block only (no append), delete(id), move(id, parentID, previousID?), breadcrumb(id), batch_get(ids) / batch_kramdown(ids) where ids is comma-separated.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "action": {
+      "type": "string",
+      "description": "Operation",
+      "enum": [
+       "get",
+       "get_kramdown",
+       "get_children",
+       "tree_stat",
+       "dom",
+       "insert",
+       "append",
+       "prepend",
+       "update",
+       "delete",
+       "move",
+       "breadcrumb",
+       "batch_get",
+       "batch_kramdown"
+      ]
+     },
+     "data": {
+      "type": "string",
+      "description": "Content in markdown or block DOM. Prefer markdown. A horizontal super-block uses {{{col with blank-line-separated child blocks and }}} on its own line; col is horizontal and row is vertical. Raw super-block DOM uses data-type=\"NodeSuperBlock\" and data-sb-layout, never data-layout, and every child needs an explicit data-type. Markdown block references use ((blockID \"anchor text\")); never [[blockID]]"
+     },
+     "dataType": {
+      "type": "string",
+      "description": "Content type: markdown or dom",
+      "enum": [
+       "markdown",
+       "dom"
+      ]
+     },
+     "id": {
+      "type": "string",
+      "description": "Block ID"
+     },
+     "ids": {
+      "type": "string",
+      "description": "Comma-separated block IDs (for batch_get, batch_kramdown)"
+     },
+     "lockType": {
+      "type": "boolean",
+      "description": "Reject update when the parsed block type differs from the existing block type; defaults to false"
+     },
+     "nextID": {
+      "type": "string",
+      "description": "Next sibling block ID (for insert)"
+     },
+     "notebook": {
+      "type": "string",
+      "description": "Notebook ID that owns the target blocks; required for encrypted notebooks"
+     },
+     "parentID": {
+      "type": "string",
+      "description": "Parent block ID"
+     },
+     "previousID": {
+      "type": "string",
+      "description": "Previous sibling block ID (for insert)"
+     }
+    },
+    "required": [
+     "action"
+    ]
+   },
+   "name": "block"
+  },
+  {
+   "description": "Bookmark management. Actions: list(), labels(), remove(label), rename(old, new).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "action": {
+      "type": "string",
+      "description": "Operation",
+      "enum": [
+       "list",
+       "labels",
+       "remove",
+       "rename"
+      ]
+     },
+     "label": {
+      "type": "string",
+      "description": "Bookmark label (for remove)"
+     },
+     "new": {
+      "type": "string",
+      "description": "New label (for rename)"
+     },
+     "old": {
+      "type": "string",
+      "description": "Old label (for rename)"
+     }
+    },
+    "required": [
+     "action"
+    ]
+   },
+   "name": "bookmark"
+  },
+  {
+   "description": "Daily note operations. Actions: create(notebook) — create/open today's note, append(notebook, data, dataType?) / prepend(...) add a block.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "action": {
+      "type": "string",
+      "description": "Operation",
+      "enum": [
+       "create",
+       "append",
+       "prepend"
+      ]
+     },
+     "data": {
+      "type": "string",
+      "description": "Content in markdown or dom (for append/prepend)"
+     },
+     "dataType": {
+      "type": "string",
+      "description": "Content type: markdown or dom",
+      "enum": [
+       "markdown",
+       "dom"
+      ]
+     },
+     "notebook": {
+      "type": "string",
+      "description": "Notebook ID"
+     }
+    },
+    "required": [
+     "action",
+     "notebook"
+    ]
+   },
+   "name": "dailynote"
+  },
+  {
+   "description": "Attribute view (database) operations. Every successful call returns {action, data}. Actions: create(parentID, name?, primaryKeyName?, layout=table, keys?, previousID?, nextID?), search(keyword), get(id), render(id, viewID?, query?, page=1, pageSize=50), keys(id), key_add(id, name, type, icon?, prev?), key_remove(id, keyID, removeRelationDest?), item_add(id, blockID?, content?, viewID?, groupID?, previousID?, detached?, ignoreDefaultFill?), item_remove(id, itemIDs), item_update(id, keyID, itemID, value), unused(), clean(id?). key_add appends to the current view when prev is omitted.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "action": {
+      "type": "string",
+      "description": "Operation",
+      "enum": [
+       "create",
+       "search",
+       "get",
+       "render",
+       "keys",
+       "key_add",
+       "key_remove",
+       "item_add",
+       "item_remove",
+       "item_update",
+       "unused",
+       "clean"
+      ]
+     },
+     "blockID": {
+      "type": "string",
+      "description": "Block ID to bind (for item_add, optional)"
+     },
+     "content": {
+      "type": "string",
+      "description": "Block column text content (for item_add, optional)"
+     },
+     "detached": {
+      "type": "boolean",
+      "description": "Create detached row (for item_add, optional)"
+     },
+     "groupID": {
+      "type": "string",
+      "description": "Group ID for positioning (for item_add, optional)"
+     },
+     "icon": {
+      "type": "string",
+      "description": "Key icon (for key_add, optional)"
+     },
+     "id": {
+      "type": "string",
+      "description": "Attribute view ID (for get, render, keys, key_add, key_remove, item_add, item_remove, item_update, clean)"
+     },
+     "ignoreDefaultFill": {
+      "type": "boolean",
+      "description": "Skip filling default values (for item_add, optional)"
+     },
+     "itemID": {
+      "type": "string",
+      "description": "Item ID (for item_update)"
+     },
+     "itemIDs": {
+      "type": "array",
+      "description": "Item IDs (for item_remove)",
+      "items": {
+       "type": "string"
+      }
+     },
+     "keyID": {
+      "type": "string",
+      "description": "Key ID (for key_remove, item_update)"
+     },
+     "keys": {
+      "type": "array",
+      "description": "Ordered fields to create after the primary key (for create, optional)",
+      "items": {
+       "type": "object",
+       "properties": {
+        "icon": {
+         "type": "string",
+         "description": "Field icon (optional)"
+        },
+        "name": {
+         "type": "string",
+         "description": "Field name"
+        },
+        "type": {
+         "type": "string",
+         "description": "Field type",
+         "enum": [
+          "text",
+          "number",
+          "date",
+          "select",
+          "mSelect",
+          "url",
+          "email",
+          "phone",
+          "mAsset",
+          "template",
+          "created",
+          "updated",
+          "checkbox",
+          "relation",
+          "rollup",
+          "lineNumber"
+         ]
+        }
+       },
+       "required": [
+        "name",
+        "type"
+       ]
+      }
+     },
+     "keyword": {
+      "type": "string",
+      "description": "Search keyword (for search)"
+     },
+     "layout": {
+      "type": "string",
+      "description": "Initial database layout (for create, default table)",
+      "enum": [
+       "table",
+       "gallery",
+       "kanban"
+      ]
+     },
+     "name": {
+      "type": "string",
+      "description": "Database name (for create) or key name (for key_add)"
+     },
+     "nextID": {
+      "type": "string",
+      "description": "Next sibling block ID for positioning the new database (for create, optional)"
+     },
+     "notebook": {
+      "type": "string",
+      "description": "Notebook ID that owns the new database; required for encrypted notebooks"
+     },
+     "page": {
+      "type": "integer",
+      "description": "Page number (default 1)"
+     },
+     "pageSize": {
+      "type": "integer",
+      "description": "Results per page (default 50)"
+     },
+     "parentID": {
+      "type": "string",
+      "description": "Parent block ID for the new database (for create)"
+     },
+     "prev": {
+      "type": "string",
+      "description": "Previous key ID for ordering (for key_add; omit to append)"
+     },
+     "previousID": {
+      "type": "string",
+      "description": "Previous sibling database block (for create) or previous item (for item_add, optional)"
+     },
+     "primaryKeyName": {
+      "type": "string",
+      "description": "Primary key field name (for create, optional)"
+     },
+     "query": {
+      "type": "string",
+      "description": "Filter query (for render)"
+     },
+     "removeRelationDest": {
+      "type": "boolean",
+      "description": "Also remove related data in linked databases (for key_remove, optional)"
+     },
+     "type": {
+      "type": "string",
+      "description": "Key type (for key_add)",
+      "enum": [
+       "text",
+       "number",
+       "date",
+       "select",
+       "mSelect",
+       "url",
+       "email",
+       "phone",
+       "mAsset",
+       "template",
+       "created",
+       "updated",
+       "checkbox",
+       "relation",
+       "rollup",
+       "lineNumber"
+      ]
+     },
+     "value": {
+      "type": "object",
+      "description": "Typed cell value (for item_update)"
+     },
+     "viewID": {
+      "type": "string",
+      "description": "View ID (for render, item_add)"
+     }
+    },
+    "required": [
+     "action"
+    ]
+   },
+   "name": "database",
+   "outputSchema": {
+    "type": "object",
+    "properties": {
+     "action": {
+      "type": "string",
+      "description": "Completed operation",
+      "enum": [
+       "create",
+       "search",
+       "get",
+       "render",
+       "keys",
+       "key_add",
+       "key_remove",
+       "item_add",
+       "item_remove",
+       "item_update",
+       "unused",
+       "clean"
+      ]
+     },
+     "data": {
+      "type": "object",
+      "description": "Operation result"
+     }
+    },
+    "required": [
+     "action",
+     "data"
+    ]
+   }
+  },
+  {
+   "description": "Document operations. Actions: get(id), create(notebook, path=hPath, title, markdown?), list(notebook, path=hPath default /), delete(id), rename(id, title), move(id, notebook, path=target hPath), duplicate(id), search_docs(keyword), info(id).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "action": {
+      "type": "string",
+      "description": "Operation",
+      "enum": [
+       "get",
+       "create",
+       "list",
+       "delete",
+       "rename",
+       "move",
+       "duplicate",
+       "search_docs",
+       "info"
+      ]
+     },
+     "id": {
+      "type": "string",
+      "description": "Document block ID"
+     },
+     "keyword": {
+      "type": "string",
+      "description": "Search keyword (for search_docs)"
+     },
+     "markdown": {
+      "type": "string",
+      "description": "Initial markdown content (for create)"
+     },
+     "notebook": {
+      "type": "string",
+      "description": "Notebook ID (required for create, list, move)"
+     },
+     "path": {
+      "type": "string",
+      "description": "Document hPath, the human-readable path shown in the document tree (e.g. /folder/doc). Used for create, list, move."
+     },
+     "title": {
+      "type": "string",
+      "description": "Document title (for create, rename)"
+     }
+    },
+    "required": [
+     "action"
+    ]
+   },
+   "name": "document"
+  },
+  {
+   "description": "Export operations. Actions: md(id), html(id), preview(id), docx(id, output path), sy(id) → .sy.zip, md-zip(id), data() → full workspace backup.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "action": {
+      "type": "string",
+      "description": "Operation",
+      "enum": [
+       "md",
+       "html",
+       "preview",
+       "docx",
+       "sy",
+       "md-zip",
+       "data"
+      ]
+     },
+     "id": {
+      "type": "string",
+      "description": "Document block ID (for md, html, preview, docx, sy, md-zip)"
+     },
+     "output": {
+      "type": "string",
+      "description": "Output file path (required for docx, optional for others)"
+     }
+    },
+    "required": [
+     "action"
+    ]
+   },
+   "name": "export"
+  },
+  {
+   "description": "Workspace file operations (paths relative to workspace; debugging/log reading only — never use for workspace data). Actions: list(path, limit=200, 0/-1=unlimited), read(path, offset, limit; default 200 lines, limit=-1 for full), write(path, data), delete(path), rename(old, new), copy(src, dst), grep(pattern, path, include?, context?, limit=200), find(path, include?, limit=200), stat(path).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "action": {
+      "type": "string",
+      "description": "Operation",
+      "enum": [
+       "list",
+       "read",
+       "write",
+       "delete",
+       "rename",
+       "copy",
+       "grep",
+       "find",
+       "stat"
+      ]
+     },
+     "context": {
+      "type": "number",
+      "description": "Number of context lines before and after each match (for grep, default 0)"
+     },
+     "data": {
+      "type": "string",
+      "description": "File content (for write)"
+     },
+     "dst": {
+      "type": "string",
+      "description": "Destination path (for copy)"
+     },
+     "include": {
+      "type": "string",
+      "description": "File glob pattern to filter files (for grep, find; e.g. \"*.go\", \"*.{ts,tsx}\")"
+     },
+     "limit": {
+      "type": "number",
+      "description": "Maximum lines/files/entries to return (for read, list, find, grep). Default: 200 lines when offset and limit are both 0 for read, 200 for list/find/grep. Use 0 or negative for unlimited."
+     },
+     "new": {
+      "type": "string",
+      "description": "Destination path (for rename)"
+     },
+     "offset": {
+      "type": "number",
+      "description": "Line number to start reading from (for read, 1-based). Negative means N lines from the end. Default: 0 (read from beginning)."
+     },
+     "old": {
+      "type": "string",
+      "description": "Source path (for rename)"
+     },
+     "path": {
+      "type": "string",
+      "description": "Relative path within workspace (for list, read, write, delete, grep, find, stat)"
+     },
+     "pattern": {
+      "type": "string",
+      "description": "Regex pattern to search for (for grep)"
+     },
+     "src": {
+      "type": "string",
+      "description": "Source path (for copy)"
+     }
+    },
+    "required": [
+     "action"
+    ]
+   },
+   "name": "file"
+  },
+  {
+   "description": "Document history operations. Actions: list(query?, notebook?, op?, type?, page?), search(query, notebook?, op?, type?, page?), get(path), rollback(path), clear().",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "action": {
+      "type": "string",
+      "description": "Operation",
+      "enum": [
+       "list",
+       "search",
+       "get",
+       "rollback",
+       "clear"
+      ]
+     },
+     "notebook": {
+      "type": "string",
+      "description": "Notebook ID filter (for list, search)"
+     },
+     "op": {
+      "type": "string",
+      "description": "Operation filter: delete/update/create (for list, search)"
+     },
+     "page": {
+      "type": "number",
+      "description": "Page number (default 1)"
+     },
+     "path": {
+      "type": "string",
+      "description": "History path relative to workspace directory (for get, rollback). Obtained from list/search output, e.g. history/2024-03-15-.../docid/..."
+     },
+     "query": {
+      "type": "string",
+      "description": "Search query (for list, search)"
+     },
+     "type": {
+      "type": "number",
+      "description": "Search type: 0=name,1=content,2=asset,3=docID,4=database (default 1)"
+     }
+    },
+    "required": [
+     "action"
+    ]
+   },
+   "name": "history"
+  },
+  {
+   "description": "Send an HTTP request to a REST API and return the raw text response (JSON is kept as-is). action (HTTP method): get (default)/post/put/delete/patch. url (http/https), headers (object), body (string). Use this instead of web_fetch when you need POST, custom headers (e.g. Authorization), or raw JSON responses.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "action": {
+      "type": "string",
+      "description": "HTTP method. Defaults to get.",
+      "enum": [
+       "get",
+       "post",
+       "put",
+       "delete",
+       "patch"
+      ]
+     },
+     "body": {
+      "type": "string",
+      "description": "Optional request body for post/put/patch."
+     },
+     "headers": {
+      "type": "object",
+      "description": "Optional request headers, e.g. {\"Authorization\":\"Bearer ...\", \"Content-Type\":\"application/json\"}."
+     },
+     "url": {
+      "type": "string",
+      "description": "The request URL (must start with http:// or https://)"
+     }
+    },
+    "required": [
+     "url"
+    ]
+   },
+   "name": "http_request"
+  },
+  {
+   "description": "List and understand local images referenced by a SiYuan document, or generate an image asset. Use list before analyze. analyze attaches the selected image to the current Agent model. generate creates a reusable image asset in the target document's notebook.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "action": {
+      "type": "string",
+      "enum": [
+       "list",
+       "analyze",
+       "generate"
+      ]
+     },
+     "assetPath": {
+      "type": "string",
+      "description": "Local assets/... path returned by list; required for analyze"
+     },
+     "detail": {
+      "type": "string",
+      "enum": [
+       "auto",
+       "low",
+       "high"
+      ]
+     },
+     "documentID": {
+      "type": "string",
+      "description": "Document or descendant block ID used to resolve the target document and notebook"
+     },
+     "outputFormat": {
+      "type": "string",
+      "enum": [
+       "png",
+       "jpeg",
+       "webp"
+      ]
+     },
+     "prompt": {
+      "type": "string",
+      "description": "Prompt describing the image to generate"
+     },
+     "quality": {
+      "type": "string",
+      "description": "Provider-supported image quality"
+     },
+     "question": {
+      "type": "string",
+      "description": "Question for the current Agent model about the attached image"
+     },
+     "size": {
+      "type": "string",
+      "description": "Provider-supported image size, such as 1024x1024"
+     }
+    },
+    "required": [
+     "action",
+     "documentID"
+    ]
+   },
+   "name": "image",
+   "title": "Document images"
+  },
+  {
+   "description": "Import operations (absolute local paths). Actions: md(notebook, path, targetPath?), sy(notebook, path, targetPath?) — .sy.zip, data(path) — full backup zip.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "action": {
+      "type": "string",
+      "description": "Operation",
+      "enum": [
+       "md",
+       "sy",
+       "data"
+      ]
+     },
+     "notebook": {
+      "type": "string",
+      "description": "Notebook ID (for md, sy)"
+     },
+     "path": {
+      "type": "string",
+      "description": "Absolute local file path"
+     },
+     "targetPath": {
+      "type": "string",
+      "description": "Target internal filesystem path (for md, sy; default /). This is the ID-based path like /2022...ws.sy, not hPath."
+     }
+    },
+    "required": [
+     "action"
+    ]
+   },
+   "name": "import"
+  },
+  {
+   "description": "Inbox management (cloud-clipped web pages, messages, and audio/video/file attachments; requires subscription). Actions: list(page=1), get(id), convert(ids, notebook, path=/, remove_after=true) — converts one or more shorthands into local documents under the target notebook, deleting the cloud originals on success.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "action": {
+      "type": "string",
+      "description": "Operation",
+      "enum": [
+       "list",
+       "get",
+       "convert"
+      ]
+     },
+     "id": {
+      "type": "string",
+      "description": "Shorthand ID (for get)"
+     },
+     "ids": {
+      "type": "string",
+      "description": "Comma-separated shorthand IDs (for convert), e.g. \"1700000000000,1700000000001\""
+     },
+     "notebook": {
+      "type": "string",
+      "description": "Target notebook ID (for convert)"
+     },
+     "page": {
+      "type": "integer",
+      "description": "Page number for list (1-based, default 1)"
+     },
+     "path": {
+      "type": "string",
+      "description": "Target hPath in the notebook for the new documents (default \"/\", the notebook root). Parent path must already exist."
+     },
+     "remove_after": {
+      "type": "boolean",
+      "description": "Whether to delete the cloud shorthand after a successful conversion (default true)"
+     }
+    },
+    "required": [
+     "action"
+    ]
+   },
+   "name": "inbox"
+  },
+  {
+   "description": "Notebook management. Actions: list(), open(id), close(id), create(name), rename(id, name), remove(id), set_icon(id, icon), random_icon(id?).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "action": {
+      "type": "string",
+      "description": "Operation",
+      "enum": [
+       "list",
+       "open",
+       "close",
+       "create",
+       "rename",
+       "remove",
+       "set_icon",
+       "random_icon"
+      ]
+     },
+     "icon": {
+      "type": "string",
+      "description": "Notebook icon (for set_icon). Emoji hex codepoint like \"1f4ca\", emoji character like \"📊\", custom image path like \"1/b3log.png\", network image URL like \"https://example.com/icon.png\", or dynamic icon URL like \"api/icon/getDynamicIcon?type=8&color=%23d23f31&content=SiYuan&id=xxx\""
+     },
+     "id": {
+      "type": "string",
+      "description": "Notebook ID (for open, close, rename, remove, set_icon, random_icon)"
+     },
+     "name": {
+      "type": "string",
+      "description": "Notebook name (for create, rename)"
+     }
+    },
+    "required": [
+     "action"
+    ]
+   },
+   "name": "notebook"
+  },
+  {
+   "description": "Document outline (heading tree). Action: get(id).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "action": {
+      "type": "string",
+      "description": "Operation",
+      "enum": [
+       "get"
+      ]
+     },
+     "id": {
+      "type": "string",
+      "description": "Document block ID"
+     }
+    },
+    "required": [
+     "action",
+     "id"
+    ]
+   },
+   "name": "outline"
+  },
+  {
+   "description": "Reference/backlink operations. Actions: backlinks(id, keyword?, sort?), mentions(id, keyword?, sort?), refresh(id).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "action": {
+      "type": "string",
+      "description": "Operation",
+      "enum": [
+       "backlinks",
+       "mentions",
+       "refresh"
+      ]
+     },
+     "id": {
+      "type": "string",
+      "description": "Block ID"
+     },
+     "keyword": {
+      "type": "string",
+      "description": "Filter by keyword"
+     },
+     "sort": {
+      "type": "number",
+      "description": "Sort mode for backlinks and mentions: 0=updated-desc 1=updated-asc 2=created-desc 3=created-asc 4=name-desc 5=name-asc 6=alphanum-desc 7=alphanum-asc (default 0)"
+     }
+    },
+    "required": [
+     "action",
+     "id"
+    ]
+   },
+   "name": "ref"
+  },
+  {
+   "description": "Repository (data snapshot) operations. Actions: list(tag?, page=1), create(memo?), tag(id, name), untag(name), checkout(id), diff(left, right), search(keyword, page?), purge(), file_get(id), file_rollback(id), file_open(id), file_export(id).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "action": {
+      "type": "string",
+      "description": "Operation",
+      "enum": [
+       "list",
+       "create",
+       "tag",
+       "untag",
+       "checkout",
+       "diff",
+       "search",
+       "purge",
+       "file_get",
+       "file_rollback",
+       "file_open",
+       "file_export"
+      ]
+     },
+     "id": {
+      "type": "string",
+      "description": "Snapshot ID (for tag, checkout, file_get, file_rollback, file_open, file_export)"
+     },
+     "keyword": {
+      "type": "string",
+      "description": "Search keyword (for search)"
+     },
+     "left": {
+      "type": "string",
+      "description": "Left snapshot ID (for diff)"
+     },
+     "memo": {
+      "type": "string",
+      "description": "Snapshot memo (for create, optional)"
+     },
+     "name": {
+      "type": "string",
+      "description": "Tag name (for tag, untag)"
+     },
+     "page": {
+      "type": "number",
+      "description": "Page number (for list, search; default 1)"
+     },
+     "right": {
+      "type": "string",
+      "description": "Right snapshot ID (for diff)"
+     },
+     "tag": {
+      "type": "boolean",
+      "description": "List tagged snapshots only (for list, optional)"
+     }
+    },
+    "required": [
+     "action"
+    ]
+   },
+   "name": "repo"
+  },
+  {
+   "description": "Search. Actions: fulltext(query, page=1, pageSize=20, notebook?, path?, type?, subtype?, method?, orderBy?, groupBy?), semantic(query, page=1, pageSize=20, notebook?, path?, type?, subtype?) — semantic needs AI embedding configured; asset(query, page=1, pageSize=32, ext?, method?, orderBy?) — full-text search inside asset file contents (PDF/Word/Excel/txt etc.), returns matched snippets with <mark> tags; getasset(path) — get the full indexed content of one asset file by its path (e.g. 'assets/foo.pdf').",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "action": {
+      "type": "string",
+      "description": "Operation: fulltext, semantic, asset, or getasset",
+      "enum": [
+       "fulltext",
+       "semantic",
+       "asset",
+       "getasset"
+      ]
+     },
+     "ext": {
+      "type": "string",
+      "description": "Comma-separated asset file extensions to filter, e.g. 'pdf,docx,xlsx' (optional, asset only)"
+     },
+     "groupBy": {
+      "type": "number",
+      "description": "Group by (fulltext only): 0=none 1=document (default 0)"
+     },
+     "method": {
+      "type": "number",
+      "description": "Search method: fulltext/asset 0=keyword 1=query-syntax 2=sql 3=regex (default 0)"
+     },
+     "notebook": {
+      "type": "string",
+      "description": "Comma-separated notebook IDs to filter (optional, fulltext/semantic only)"
+     },
+     "orderBy": {
+      "type": "number",
+      "description": "Sort order — fulltext: 0=type 1=created-asc 2=created-desc 3=updated-asc 4=updated-desc 5=content 6=relevance-asc 7=relevance-desc; asset: 0=relevance-desc 1=relevance-asc 2=updated-asc 3=updated-desc (default 0)"
+     },
+     "page": {
+      "type": "number",
+      "description": "Page number (default 1)"
+     },
+     "pageSize": {
+      "type": "number",
+      "description": "Results per page (default 20 for fulltext/semantic, 32 for asset)"
+     },
+     "path": {
+      "type": "string",
+      "description": "Comma-separated path prefixes to filter (optional, fulltext/semantic only); for getasset, a single asset file path like 'assets/foo.pdf'"
+     },
+     "query": {
+      "type": "string",
+      "description": "Search keywords (required for fulltext/semantic/asset)"
+     },
+     "subtype": {
+      "type": "string",
+      "description": "Comma-separated block subtypes to filter, e.g. 'o,u,t' (optional, fulltext/semantic only)"
+     },
+     "type": {
+      "type": "string",
+      "description": "Comma-separated block types to filter, e.g. 'document,heading,paragraph' (optional, fulltext/semantic only)"
+     }
+    },
+    "required": [
+     "action"
+    ]
+   },
+   "name": "search"
+  },
+  {
+   "description": "Skill operations: load(name) loads Skill instructions; load(name/resource-path) loads a bundled text resource; save(name, content), install(url), remove(name), rename(name, new_name), list().\n\nNo skills are currently available.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "action": {
+      "type": "string",
+      "description": "Operation",
+      "enum": [
+       "load",
+       "save",
+       "install",
+       "remove",
+       "rename",
+       "list"
+      ]
+     },
+     "content": {
+      "type": "string",
+      "description": "SKILL.md full content with YAML frontmatter (for save)"
+     },
+     "name": {
+      "type": "string",
+      "description": "Skill name. For load, use <skill-name> for instructions or <skill-name>/<relative-resource-path> for a bundled text resource"
+     },
+     "new_name": {
+      "type": "string",
+      "description": "New skill name (for rename)"
+     },
+     "url": {
+      "type": "string",
+      "description": "Skill source for install: 'owner/repo' shorthand (e.g. Tencent/WeChatReading), a full GitHub URL, a raw SKILL.md URL, or a release zip URL"
+     }
+    },
+    "required": [
+     "action"
+    ]
+   },
+   "name": "skill"
+  },
+  {
+   "description": "Read-only SQL on SiYuan's database. Action: query(stmt) — SELECT only. Results default to at most 100 rows; use explicit LIMIT and OFFSET clauses for pagination.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "action": {
+      "type": "string",
+      "description": "Operation",
+      "enum": [
+       "query"
+      ]
+     },
+     "notebook": {
+      "type": "string",
+      "description": "Optional notebook ID used to query an encrypted notebook"
+     },
+     "stmt": {
+      "type": "string",
+      "description": "SQL SELECT statement. Results default to at most 100 rows; use LIMIT and OFFSET for pagination"
+     }
+    },
+    "required": [
+     "action",
+     "stmt"
+    ]
+   },
+   "name": "sql"
+  },
+  {
+   "description": "Data sync operations. Actions: perform() (full upload+download), upload(), download(), status().",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "action": {
+      "type": "string",
+      "description": "Operation",
+      "enum": [
+       "perform",
+       "upload",
+       "download",
+       "status"
+      ]
+     }
+    },
+    "required": [
+     "action"
+    ]
+   },
+   "name": "sync"
+  },
+  {
+   "description": "System info. Actions: version(), current_time(), workspace().",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "action": {
+      "type": "string",
+      "description": "Operation",
+      "enum": [
+       "version",
+       "current_time",
+       "workspace"
+      ]
+     }
+    },
+    "required": [
+     "action"
+    ]
+   },
+   "name": "system"
+  },
+  {
+   "description": "Tag management. Actions: list(keyword?), rename(old, new), remove(label).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "action": {
+      "type": "string",
+      "description": "Operation",
+      "enum": [
+       "list",
+       "rename",
+       "remove"
+      ]
+     },
+     "keyword": {
+      "type": "string",
+      "description": "Search keyword (for list)"
+     },
+     "label": {
+      "type": "string",
+      "description": "Tag label (for remove)"
+     },
+     "new": {
+      "type": "string",
+      "description": "New tag label (for rename)"
+     },
+     "old": {
+      "type": "string",
+      "description": "Old tag label (for rename)"
+     }
+    },
+    "required": [
+     "action"
+    ]
+   },
+   "name": "tag"
+  },
+  {
+   "description": "Template management. Actions: search(keyword?), get(path), remove(path), render(path, id), save_as(id, name, overwrite?), create(name, content, overwrite?).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "action": {
+      "type": "string",
+      "description": "Operation",
+      "enum": [
+       "search",
+       "get",
+       "remove",
+       "render",
+       "save_as",
+       "create"
+      ]
+     },
+     "content": {
+      "type": "string",
+      "description": "Markdown content (for create)"
+     },
+     "id": {
+      "type": "string",
+      "description": "Block ID (for render, save_as)"
+     },
+     "keyword": {
+      "type": "string",
+      "description": "Search keyword; empty lists all (for search)"
+     },
+     "name": {
+      "type": "string",
+      "description": "Template name without extension (for save_as, create)"
+     },
+     "overwrite": {
+      "type": "boolean",
+      "description": "Overwrite if exists (for save_as, create, default false)"
+     },
+     "path": {
+      "type": "string",
+      "description": "Template file path as returned by search (for get, remove, render)"
+     }
+    },
+    "required": [
+     "action"
+    ]
+   },
+   "name": "template"
+  },
+  {
+   "description": "Extract a zip archive within the workspace. Provide the workspace-relative path to the zip file and the destination directory (also workspace-relative). The destination will be created if it does not exist.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "destPath": {
+      "type": "string",
+      "description": "Workspace-relative destination directory to extract into."
+     },
+     "zipPath": {
+      "type": "string",
+      "description": "Workspace-relative path to the .zip file to extract."
+     }
+    },
+    "required": [
+     "zipPath",
+     "destPath"
+    ]
+   },
+   "name": "unzip"
+  },
+  {
+   "description": "Fetch a web page and convert to Markdown or text. url (http/https), format: markdown (default) or text.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "format": {
+      "type": "string",
+      "description": "Output format: 'markdown' or 'text' (default 'markdown')",
+      "enum": [
+       "markdown",
+       "text"
+      ]
+     },
+     "url": {
+      "type": "string",
+      "description": "The page URL to fetch (must start with http:// or https://)"
+     }
+    },
+    "required": [
+     "url"
+    ]
+   },
+   "name": "web_fetch"
+  },
+  {
+   "description": "Web search via Exa, returns text results. Action: query(keywords).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "query": {
+      "type": "string",
+      "description": "Search query keywords"
+     }
+    },
+    "required": [
+     "query"
+    ]
+   },
+   "name": "web_search"
+  },
+  {
+   "description": "Workspace management. Actions: list(), info() (path, version, valid).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "action": {
+      "type": "string",
+      "description": "Operation",
+      "enum": [
+       "list",
+       "info"
+      ]
+     }
+    },
+    "required": [
+     "action"
+    ]
+   },
+   "name": "workspace"
+  }
+ ]
+}

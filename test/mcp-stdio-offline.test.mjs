@@ -169,7 +169,10 @@ test('the handshake survives SiYuan being absent, and calls recover when it appe
   await rm(home, { recursive: true, force: true })
 })
 
-test('with no cache and no SiYuan the session still starts, listing nothing', async () => {
+test('a cold start with no cache is filled by the shipped snapshot', async () => {
+  // A fresh install where SiYuan has never been opened has no cache. Listing
+  // nothing would read as "this plugin does nothing", so the package carries a
+  // snapshot of SiYuan's own catalog for exactly this case.
   const home = await mkdtemp(join(tmpdir(), 'dsh-siyuan-coldstart-'))
   // Port 9 is the discard port: reliably nothing listens there.
   const cold = startBridge('http://127.0.0.1:9/mcp', home)
@@ -179,8 +182,12 @@ test('with no cache and no SiYuan the session still starts, listing nothing', as
     assert.equal(started.result.capabilities.tools.listChanged, true)
 
     const listed = await cold.send(listTools(2))
-    assert.deepEqual(listed.result.tools, [])
-    assert.match(listed.result._meta['dsh-siyuan/catalog'], /has not been reachable/)
+    assert.ok(listed.result.tools.length > 0, 'the shipped snapshot must fill a cold start')
+    for (const tool of listed.result.tools) {
+      assert.equal(typeof tool.name, 'string')
+      assert.equal(typeof tool.inputSchema, 'object')
+    }
+    assert.match(listed.result._meta['dsh-siyuan/catalog'], /built-in snapshot/)
 
     const refused = await cold.send(callTool(3))
     assert.match(refused.error?.message ?? '', /not reachable/)

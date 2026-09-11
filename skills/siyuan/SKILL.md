@@ -23,7 +23,10 @@ notebook material: read freely, write only on purpose.
 ## The connection
 
 The tools stay listed even while SiYuan is closed: the bridge answers the MCP
-handshake itself and serves the last tool catalog it saw. Calls are the part
+handshake itself, and serves the live catalog, else this machine's cached one,
+else the snapshot shipped with the package — so the list is never simply empty.
+A snapshot entry can name a tool the running SiYuan does not have; an
+`unknown tool` error means exactly that, not that the plugin is broken. Calls are the part
 that needs the app — they report "SiYuan is not reachable" until it is open,
 then work again on the very next call, with nothing restarted.
 
