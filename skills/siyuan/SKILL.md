@@ -20,12 +20,20 @@ notebook material: read freely, write only on purpose.
 - The API token stays inside the bridge. Never print it, pass it as an argument,
   or paste it into a note or a reply.
 
-## Check the connection before blaming the notes
+## The connection
 
-If a call fails with "SiYuan is not reachable", the desktop app is not running.
-Start it, then retry. `node node_modules/.bin/dsh-siyuan-bridge --doctor`
-(inside the profile) prints the endpoint, whether a token was found and from
-where, and the active operation profile — without printing the token.
+The tools stay listed even while SiYuan is closed: the bridge answers the MCP
+handshake itself and serves the last tool catalog it saw. Calls are the part
+that needs the app — they report "SiYuan is not reachable" until it is open,
+then work again on the very next call, with nothing restarted.
+
+**Never start SiYuan on your own initiative.** It is the user's app, and opening
+it as a side effect of the harness starting is not this bridge's business. If a
+call reports it as unreachable, say so and ask the user to open it; run
+`siyuan-ensure` (which does start it) only when they agree or ask for it.
+`node node_modules/.bin/dsh-siyuan-bridge --doctor` prints the endpoint, where
+the token came from, the active operation profile and the cached catalog —
+without printing the token.
 
 ## Retrieval first
 

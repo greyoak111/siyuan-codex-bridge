@@ -8,10 +8,26 @@
  * header. Nothing here parses or rewrites `.sy` files or `siyuan.db`: the
  * official endpoint stays the only way notes are read or written.
  *
- * Two things this process owns, and nothing else:
+ * It starts no process and opens no window: the only thing it does outside its
+ * own stdio is talk to that loopback endpoint. SiYuan is the user's app to
+ * open, and a harness restarting is not a reason to launch it.
+ *
+ * Because SiYuan is a desktop app that gets closed, the bridge answers the MCP
+ * handshake and `tools/list` itself: `initialize` goes upstream when the app is
+ * there and is answered locally when it is not, and the tool catalog comes from
+ * upstream when reachable and from the last catalog this bridge saw otherwise.
+ * A client registers a server's tools only if that first handshake succeeds and
+ * never retries a server it could not reach, so without this a session started
+ * while SiYuan was shut would silently lose its tools. Calls are the opposite:
+ * they always go upstream, and while the app is closed they say so.
+ *
+ * Three things this process owns, and nothing else:
  *
  *   - the API token, resolved from the environment, a user config file, or
  *     SiYuan's own workspace configuration, and never printed or logged;
+ *   - the session with SiYuan, re-established on demand: a call that meets a
+ *     forgotten session re-handshakes and retries once, so quitting and
+ *     reopening the app does not strand the bridge on a dead session id;
  *   - the operation profile, re-read from the environment and the config file on
  *     every `tools/call` and checked before forwarding, so "the model can see
  *     the tool" and "the action is allowed" stay separate decisions — and a
@@ -23,15 +39,19 @@
  * Run `mcp-stdio.mjs --doctor` for a diagnostic report that prints no secrets.
  */
 
-import { appendFileSync, chmodSync, mkdirSync, readFileSync } from 'node:fs'
+import { appendFileSync, chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
+import { fileURLToPath } from 'node:url'
 
 const DEFAULTS = {
   apiUrl: 'http://127.0.0.1:6806',
   profile: 'authoring',
 }
+
+/** The version this bridge answers with when it has to speak for itself. */
+const DEFAULT_PROTOCOL_VERSION = '2024-11-05'
 
 const READ_ACTIONS = {
   search: ['fulltext', 'semantic'],
@@ -236,11 +256,57 @@ function requestIdFromLine(raw) {
   }
 }
 
-/** One bridge process serves one MCP session; SiYuan hands back its session id on initialize. */
+/**
+ * The bridge's own identity for the local handshake, and the session it keeps
+ * with SiYuan. SiYuan refuses `tools/call` before `initialize`
+ * ("method \"tools/call\" is invalid during session initialization"), so a
+ * session is a precondition for every forwarded request.
+ */
+function bridgeIdentity() {
+  const pkg = readJsonFile(fileURLToPath(new URL('../package.json', import.meta.url)))
+  return {
+    name: typeof pkg?.name === 'string' ? pkg.name : 'dsh-siyuan',
+    version: typeof pkg?.version === 'string' ? pkg.version : '0.0.0-unknown',
+  }
+}
+
+function toolsCacheFile() {
+  return join(stateDir(), 'tools-cache.json')
+}
+
+/** The last catalog this bridge actually saw, or undefined when it never saw one. */
+function readToolsCache() {
+  const cached = readJsonFile(toolsCacheFile())
+  return Array.isArray(cached?.tools) && cached.tools.length > 0 ? cached : undefined
+}
+
+function writeToolsCache(result) {
+  if (!Array.isArray(result?.tools) || result.tools.length === 0) return
+  const path = toolsCacheFile()
+  const payload = { fetchedAt: new Date().toISOString(), tools: result.tools }
+  try {
+    if (JSON.stringify(readJsonFile(path)?.tools) === JSON.stringify(payload.tools)) return
+    mkdirSync(stateDir(), { recursive: true, mode: 0o700 })
+    writeFileSync(path, `${JSON.stringify(payload)}\n`, { mode: 0o600 })
+    chmodSync(path, 0o600)
+  } catch {
+    // A cache miss only costs a session started with no tools listed.
+  }
+}
+
+/**
+ * One bridge process keeps one session with SiYuan.
+ *
+ * `send` is the raw transport: it reports unreachability separately from a
+ * protocol error so callers can decide between answering locally and failing.
+ * `ensureSession` performs the handshake on demand — needed when the client's
+ * own `initialize` was answered locally because SiYuan was closed at the time.
+ */
 function createUpstream(config) {
   let sessionId = undefined
+  let handshaken = false
 
-  return async function forward(message) {
+  async function send(message) {
     const headers = {
       Accept: 'application/json, text/event-stream',
       'Content-Type': 'application/json',
@@ -257,7 +323,7 @@ function createUpstream(config) {
       })
     } catch {
       // The URL is safe to name; the connection error may echo headers.
-      return jsonRpcError(message.id, `SiYuan is not reachable at ${config.mcpUrl}. Start the SiYuan desktop app and try again.`)
+      return { unreachable: `SiYuan is not reachable at ${config.mcpUrl}. Open the SiYuan desktop app and try again.` }
     }
 
     const returned = response.headers.get('mcp-session-id')
@@ -266,19 +332,80 @@ function createUpstream(config) {
     if (!response.ok) {
       // Never surface the body: an error page can carry server internals.
       if (response.status === 401 || response.status === 403) {
-        return jsonRpcError(message.id, 'SiYuan rejected the API token. Check the token in SiYuan → Settings → About, or set it in ~/.config/dsh-siyuan/config.json.', -32003)
+        return { reply: jsonRpcError(message.id, 'SiYuan rejected the API token. Check the token in SiYuan → Settings → About, or set it in ~/.config/dsh-siyuan/config.json.', -32003) }
       }
-      return jsonRpcError(message.id, `SiYuan MCP answered HTTP ${response.status}.`)
+      if (response.status === 404) {
+        // SiYuan answers 404 for a session it no longer knows — including after
+        // the app was restarted, which is a normal way for a desktop app's
+        // session to end. The caller re-handshakes and retries once.
+        return { sessionLost: true, reply: jsonRpcError(message.id, 'SiYuan no longer knows this MCP session.', -32002) }
+      }
+      if (response.status === 429) {
+        const retry = Number(response.headers.get('retry-after'))
+        const wait = Number.isFinite(retry) && retry > 0 ? ` Retry in about ${retry} seconds.` : ''
+        return { reply: jsonRpcError(message.id, `SiYuan is rate-limiting its MCP endpoint (HTTP 429).${wait} Bursts of calls trip this; it clears on its own.`, -32002) }
+      }
+      return { reply: jsonRpcError(message.id, `SiYuan MCP answered HTTP ${response.status}.`) }
     }
 
     const text = await response.text()
-    if (text.trim() === '') return undefined
+    if (text.trim() === '') return { reply: undefined }
     try {
-      return redact(JSON.parse(decodeBody(text, response.headers.get('content-type') ?? '')), config.token)
+      return { reply: redact(JSON.parse(decodeBody(text, response.headers.get('content-type') ?? '')), config.token) }
     } catch {
-      return jsonRpcError(message.id, 'SiYuan returned a response this bridge could not parse.')
+      return { reply: jsonRpcError(message.id, 'SiYuan returned a response this bridge could not parse.') }
     }
   }
+
+  /**
+   * Establish the upstream session if there is not one yet. False means SiYuan
+   * is away.
+   *
+   * Readiness is tracked apart from the session id: a Streamable HTTP server is
+   * allowed to be stateless and answer `initialize` without handing back an id,
+   * and treating that as failure would make a reachable server look absent.
+   */
+  async function ensureSession() {
+    if (handshaken) return true
+    const { reply, unreachable } = await send({
+      jsonrpc: '2.0',
+      id: 'dsh-siyuan-handshake',
+      method: 'initialize',
+      params: {
+        protocolVersion: DEFAULT_PROTOCOL_VERSION,
+        capabilities: {},
+        clientInfo: bridgeIdentity(),
+      },
+    })
+    if (unreachable !== undefined || reply?.error !== undefined) return false
+    handshaken = true
+    return true
+  }
+
+  /** Mark this bridge's own session established, after the client's initialize went upstream. */
+  function adoptSession() {
+    handshaken = true
+  }
+
+  /**
+   * Send a request, re-handshaking once if SiYuan has forgotten the session.
+   * Without this the bridge would keep a dead id after the app restarts and
+   * every later call would fail with a 404 until the harness restarted.
+   */
+  async function request(message) {
+    if (!(await ensureSession())) {
+      return { unreachable: `SiYuan is not reachable at ${config.mcpUrl}. Open the SiYuan desktop app and try again.` }
+    }
+    let outcome = await send(message)
+    if (outcome.sessionLost === true) {
+      handshaken = false
+      sessionId = undefined
+      if (await ensureSession()) outcome = await send(message)
+    }
+    return outcome
+  }
+
+  return { adoptSession, ensureSession, hasSession: () => handshaken, request, send }
 }
 
 function write(message) {
@@ -293,25 +420,33 @@ async function doctor(config) {
     `endpoint: ${config.mcpUrl}`,
     `token: ${config.token ? `present (from ${config.tokenSource})` : 'MISSING — set it in the config file or in SiYuan itself'}`,
     `operation profile: ${profile} (${PROFILE_SUMMARY[profile]})`,
+    `tool catalog: ${readToolsCache() === undefined
+      ? 'no cache yet — the first session with SiYuan running fills it'
+      : `${readToolsCache().tools.length} tools cached at ${readToolsCache().fetchedAt}`}`,
     ...config.notes.map((note) => `note: ${note}`),
   ]
   for (const line of report) process.stdout.write(`${line}\n`)
 
   if (!config.token) return 2
-  const forward = createUpstream(config)
-  const initialized = await forward({
+  const upstream = createUpstream(config)
+  const handshake = await upstream.send({
     jsonrpc: '2.0',
     id: 1,
     method: 'initialize',
-    params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'dsh-siyuan-doctor', version: '1.0' } },
+    params: { protocolVersion: DEFAULT_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'dsh-siyuan-doctor', version: '1.0' } },
   })
+  const initialized = handshake.reply
+  if (handshake.unreachable !== undefined) {
+    process.stdout.write(`initialize: FAILED — ${handshake.unreachable}\n`)
+    return 3
+  }
   if (initialized?.error) {
     process.stdout.write(`initialize: FAILED — ${initialized.error.message}\n`)
     return 3
   }
   const serverInfo = initialized?.result?.serverInfo
   process.stdout.write(`initialize: ok (${serverInfo?.name ?? 'unknown'} ${serverInfo?.version ?? ''})\n`)
-  const listed = await forward({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} })
+  const listed = (await upstream.send({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} })).reply
   if (listed?.error) {
     process.stdout.write(`tools/list: FAILED — ${listed.error.message}\n`)
     return 3
@@ -328,7 +463,7 @@ async function main() {
     return
   }
 
-  const forward = createUpstream(config)
+  const upstream = createUpstream(config)
 
   // Without a token every request answers with one actionable error instead of
   // a connection failure, so the reason reaches the model rather than the log.
@@ -363,6 +498,60 @@ async function main() {
       return
     }
 
+    // A session that exists even while SiYuan is closed. The client registers a
+    // server's tools only when `initialize` succeeds, and it never retries a
+    // server it failed to connect to — so answering locally is what keeps the
+    // tools in the catalog across a restart with SiYuan shut, and lets them
+    // start working the moment the user opens SiYuan, with no launch of the
+    // app by the host and no re-registration in the client.
+    if (message.method === 'initialize') {
+      const { reply, unreachable } = await upstream.send(message)
+      const answered = unreachable === undefined && reply?.error === undefined
+      if (answered) upstream.adoptSession()
+      write(answered ? reply : {
+        jsonrpc: '2.0',
+        id: message.id,
+        result: {
+          protocolVersion: typeof message.params?.protocolVersion === 'string'
+            ? message.params.protocolVersion
+            : DEFAULT_PROTOCOL_VERSION,
+          capabilities: { tools: { listChanged: true } },
+          serverInfo: bridgeIdentity(),
+          instructions: `SiYuan is not running, so this session started without a live connection. The tool list comes from the last catalog this bridge saw; calls report the app as unreachable until it is opened.`,
+        },
+      })
+      return
+    }
+
+    if (message.method === 'notifications/initialized') {
+      // Best effort: worth forwarding only when there is a session to attach it to.
+      if (upstream.hasSession()) await upstream.send(message)
+      return
+    }
+
+    if (message.method === 'tools/list') {
+      {
+        const { reply, unreachable } = await upstream.request(message)
+        if (unreachable === undefined && reply?.error === undefined) {
+          writeToolsCache(reply?.result)
+          write(reply)
+          return
+        }
+      }
+      const cached = readToolsCache()
+      write({
+        jsonrpc: '2.0',
+        id: message.id,
+        result: {
+          tools: cached?.tools ?? [],
+          _meta: cached === undefined
+            ? { 'dsh-siyuan/catalog': 'SiYuan has not been reachable yet, so no tool catalog has been cached. Open SiYuan once.' }
+            : { 'dsh-siyuan/catalog': `cached ${cached.fetchedAt} while SiYuan was unreachable` },
+        },
+      })
+      return
+    }
+
     if (message.method === 'tools/call') {
       const tool = String(message.params?.name ?? '')
       const args = message.params?.arguments ?? {}
@@ -384,7 +573,14 @@ async function main() {
       return
     }
 
-    const answer = await forward(message)
+    // Anything else needs a live session; the handshake is lazy so a bridge
+    // whose client-facing initialize was answered locally still works once
+    // SiYuan appears — and it is retried if the app restarted in between.
+    const { reply: answer, unreachable } = await upstream.request(message)
+    if (unreachable !== undefined) {
+      write(jsonRpcError(message.id, unreachable))
+      return
+    }
     // Notifications carry no id and get no response.
     if (message.id !== undefined && answer !== undefined) write(answer)
   }

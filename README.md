@@ -15,6 +15,11 @@
 - DSH 桌面端 → 插件市场搜索 `dsh-siyuan`；
 - 命令行：`dsh plugin --profile web add github:greyoak111/siyuan-codex-bridge`
 
+**桥接不会启动思源**：它只通过网络跟 `127.0.0.1:6806` 说话，宿主启动不会连带打开你的笔记应用。
+思源没开时，桥接仍会本地应答 MCP 握手、并提供上一次见到的工具目录，所以工具不会在会话里凭空消失；
+此时调用会明确返回"SiYuan is not reachable"，你打开思源后下一次调用即恢复（会话失效会自动重新握手）。
+唯一的前提是**思源至少成功连上过一次**以填充目录缓存（首次运行前先开一次思源即可）。
+
 **装完即用，不需要手填 token。** 桥接按 环境变量 `SIYUAN_API_TOKEN` → `~/.config/dsh-siyuan/config.json` → 思源自己的工作区配置（`~/.config/siyuan/workspace.json` 列出工作区，读其 `<工作区>/conf/conf.json` 的 `api.token`）的顺序解析；多数情况下最后一条就能找到，因为 token 本来就在思源自己的设置里。思源没启动时先打开思源桌面端。
 
 操作级别（桥接在**每次 `tools/call`** 上重新校验，改完下一次调用即生效）：
@@ -24,6 +29,8 @@
 | `readonly` | 搜索与读取：文档、块、大纲、反链、属性、笔记本列表、系统和工作区信息 |
 | `authoring`（默认） | 以上 + 建文档、块 insert/append/prepend/update、属性 set、日记 create/append/prepend |
 | `full` | 官方全部 action：删除、移动、重命名、复制、笔记本管理、文件、SQL、导入导出、历史回滚、仓库、同步、HTTP、网页抓取 |
+
+思源处于限流状态时（HTTP 429），桥接会把 `Retry-After` 一并写进错误文案，便于判断等多久。
 
 改级别：编辑 `~/.config/dsh-siyuan/config.json`（例如 `{"profile": "readonly"}`），或设环境变量 `SIYUAN_MCP_PROFILE`（**环境变量优先**，避免用户配置里一个多余的键推翻部署时的显式声明）。桥接在**每次 `tools/call`** 上重新读取该级别，所以下一次调用即生效，不需要重启桥接或 harness。诊断（不打印 token）：
 
