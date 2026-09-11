@@ -447,12 +447,18 @@ async function doctor(config) {
     `endpoint: ${config.mcpUrl}`,
     `token: ${config.token ? `present (from ${config.tokenSource})` : 'MISSING — set it in the config file or in SiYuan itself'}`,
     `operation profile: ${profile} (${PROFILE_SUMMARY[profile]})`,
+    // The origin, phrased for someone reading a report rather than for a client
+    // browsing while offline: `describeCatalog` says "while SiYuan was
+    // unreachable", which is true of the served copy and misleading here.
     `tool catalog: ${(() => {
       const cached = readToolsCache()
+      if (cached !== undefined) return `${cached.tools.length} tools — this machine's cache, last refreshed ${cached.fetchedAt}`
       const snapshot = readToolsSnapshot()
-      const source = cached ?? snapshot
-      if (source === undefined) return 'no cache and no built-in snapshot'
-      return `${source.tools.length} tools — ${describeCatalog(cached, cached === undefined ? snapshot : undefined)}`
+      if (snapshot !== undefined) {
+        const origin = `${snapshot.source?.name ?? 'SiYuan'} ${snapshot.source?.version ?? ''}`.trim()
+        return `${snapshot.tools.length} tools — built-in snapshot from ${origin}, replaced once SiYuan answers`
+      }
+      return 'no cache and no built-in snapshot'
     })()}`,
     ...config.notes.map((note) => `note: ${note}`),
   ]
