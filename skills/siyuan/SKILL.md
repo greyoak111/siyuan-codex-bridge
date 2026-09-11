@@ -57,7 +57,10 @@ what the user once wrote.
 ## Operation profile
 
 The bridge enforces one of three levels on every call; an action outside the
-active level is refused with a clear error rather than performed.
+active level is refused with a clear error rather than performed. The level is
+re-read from the environment and the config file **on every call**, so a change
+takes effect on the next call — the bridge does not have to be restarted, and
+neither does the harness.
 
 | Profile | Allowed |
 |---|---|
@@ -66,7 +69,9 @@ active level is refused with a clear error rather than performed.
 | `full` | the complete official surface, including delete, move, rename, notebook administration, file, SQL, import/export, history, repository, sync and network actions |
 
 Change it in `~/.config/dsh-siyuan/config.json` (`{"profile": "readonly"}`) or
-with the `SIYUAN_MCP_PROFILE` environment variable. Do not raise the level on
+with the `SIYUAN_MCP_PROFILE` environment variable, which wins over the file: an
+explicit environment statement is not something a stray key in a user config
+file should be able to overrule. Do not raise the level on
 your own initiative: ask the user, then make the change they asked for. Even at
 `full`, name the target and purpose before a destructive, file, SQL, sync or
 administrative call.

@@ -12,9 +12,10 @@
  *
  *   - the API token, resolved from the environment, a user config file, or
  *     SiYuan's own workspace configuration, and never printed or logged;
- *   - the operation profile, checked on every `tools/call` before forwarding,
- *     so "the model can see the tool" and "the action is allowed" stay
- *     separate decisions.
+ *   - the operation profile, re-read from the environment and the config file on
+ *     every `tools/call` and checked before forwarding, so "the model can see
+ *     the tool" and "the action is allowed" stay separate decisions — and a
+ *     level change takes effect on the next call, not on the next restart.
  *
  * State (config, audit log) lives under ~/.config/dsh-siyuan, never inside the
  * installed package directory, which the plugin installer treats as immutable.
@@ -133,6 +134,29 @@ function resolveConfig() {
   }
 
   return { apiUrl, configFile, mcpUrl, notes, profile, token, tokenSource }
+}
+
+/**
+ * The operation profile to decide one call with.
+ *
+ * Deliberately re-read here rather than taken from {@link resolveConfig}: the
+ * token and endpoint are process-lifetime facts, but the profile is a knob
+ * users turn while the bridge is running. `siyuan-scope` (and any editor) writes
+ * that key at any moment, so a level change frozen at startup would only take
+ * effect after a restart — and the trap is silent, because the process keeps
+ * answering with the level it booted on. The Python bridge this file replaced
+ * re-read its policy file per call, so per-call is also the documented
+ * behaviour rather than a new promise.
+ *
+ * Precedence is environment first, then the config file, then whatever startup
+ * resolved. An explicit `SIYUAN_MCP_PROFILE` is a deployment-level statement and
+ * must not be overruled by a stray key in a user config file. A malformed value
+ * in either place falls through to the next source instead of guessing.
+ */
+function currentProfile(config) {
+  return normalizeProfile(process.env.SIYUAN_MCP_PROFILE)
+    ?? normalizeProfile(readJsonFile(config.configFile)?.profile)
+    ?? config.profile
 }
 
 /** Keep a live token out of anything this process writes or prints. */
@@ -267,7 +291,7 @@ async function doctor(config) {
     `config file: ${config.configFile}${readJsonFile(config.configFile) === undefined ? ' (absent)' : ''}`,
     `endpoint: ${config.mcpUrl}`,
     `token: ${config.token ? `present (from ${config.tokenSource})` : 'MISSING — set it in the config file or in SiYuan itself'}`,
-    `operation profile: ${config.profile} (${PROFILE_SUMMARY[config.profile]})`,
+    `operation profile: ${currentProfile(config)} (${PROFILE_SUMMARY[currentProfile(config)]})`,
     ...config.notes.map((note) => `note: ${note}`),
   ]
   for (const line of report) process.stdout.write(`${line}\n`)
@@ -341,16 +365,19 @@ async function main() {
     if (message.method === 'tools/call') {
       const tool = String(message.params?.name ?? '')
       const args = message.params?.arguments ?? {}
-      if (!callAllowed(config.profile, tool, args)) {
-        audit(config.profile, tool, args?.action, 'denied')
+      // One profile for this call's decision, its audit line and its error text:
+      // read once here so a level change mid-call cannot make them disagree.
+      const profile = currentProfile(config)
+      if (!callAllowed(profile, tool, args)) {
+        audit(profile, tool, args?.action, 'denied')
         write(jsonRpcError(
           message.id,
-          `tool ${JSON.stringify(safeLabel(tool, 64))} action ${JSON.stringify(safeLabel(args?.action ?? '', 64))} is denied by the dsh-siyuan operation profile "${config.profile}"`,
+          `tool ${JSON.stringify(safeLabel(tool, 64))} action ${JSON.stringify(safeLabel(args?.action ?? '', 64))} is denied by the dsh-siyuan operation profile "${profile}"`,
           -32003,
         ))
         return
       }
-      audit(config.profile, tool, args?.action, 'allowed')
+      audit(profile, tool, args?.action, 'allowed')
     } else if (message.method === 'ping') {
       write({ jsonrpc: '2.0', id: message.id, result: {} })
       return

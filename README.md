@@ -25,7 +25,7 @@
 | `authoring`（默认） | 以上 + 建文档、块 insert/append/prepend/update、属性 set、日记 create/append/prepend |
 | `full` | 官方全部 action：删除、移动、重命名、复制、笔记本管理、文件、SQL、导入导出、历史回滚、仓库、同步、HTTP、网页抓取 |
 
-改级别：编辑 `~/.config/dsh-siyuan/config.json`（例如 `{"profile": "readonly"}`），或设环境变量 `SIYUAN_MCP_PROFILE`。诊断（不打印 token）：
+改级别：编辑 `~/.config/dsh-siyuan/config.json`（例如 `{"profile": "readonly"}`），或设环境变量 `SIYUAN_MCP_PROFILE`（**环境变量优先**，避免用户配置里一个多余的键推翻部署时的显式声明）。桥接在**每次 `tools/call`** 上重新读取该级别，所以下一次调用即生效，不需要重启桥接或 harness。诊断（不打印 token）：
 
 ```sh
 node node_modules/.bin/dsh-siyuan-bridge --doctor
