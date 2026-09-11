@@ -1,10 +1,52 @@
-# Codex ↔ SiYuan 官方 MCP 桥接
+# SiYuan MCP 桥接：Codex 与 DeepSeek Harness
 
 完整的当前操作说明（覆盖官方 29 个能力组）见[《思源官方 MCP 使用说明》](/Users/sunxifeng/siyuan-codex-bridge/docs/思源官方MCP使用说明.md)。
 
 本项目采用 [MIT License](/Users/sunxifeng/siyuan-codex-bridge/LICENSE)。
 
 这个本地桥接把 Codex Desktop、Codex CLI 和 IDE 连接到思源笔记内置的官方 MCP。STDIO 代理只把 MCP 请求转发到 `http://127.0.0.1:6806/mcp`，并在请求头中补充 API Token；它不解析或改写 `.sy` 文件，也不直接操作 `siyuan.db`。
+
+同一个仓库还是一个 **DSH（DeepSeek Harness）插件**：`package.json` 里的 `dsh.bundle` 指向 [`cordis.patch.yml`](./cordis.patch.yml)，把同样的官方工具注册成 `mcp__siyuan__*`，并附带一个 `siyuan` 使用技能。两侧互不影响——Codex 走 `bin/`（Python 代理），DSH 走 `bridge/`（Node 代理），各自的 token、策略与审计彼此独立。
+
+## 在 DSH 里使用
+
+安装（二选一）：
+
+- DSH 桌面端 → 插件市场搜索 `dsh-siyuan`；
+- 命令行：`dsh plugin --profile web add github:greyoak111/siyuan-codex-bridge`
+
+**装完即用，不需要手填 token。** 桥接按 环境变量 `SIYUAN_API_TOKEN` → `~/.config/dsh-siyuan/config.json` → 思源自己的工作区配置（`~/.config/siyuan/workspace.json` 列出工作区，读其 `<工作区>/conf/conf.json` 的 `api.token`）的顺序解析；多数情况下最后一条就能找到，因为 token 本来就在思源自己的设置里。思源没启动时先打开思源桌面端。
+
+操作级别（桥接在**每次 `tools/call`** 上重新校验，改完下一次调用即生效）：
+
+| 级别 | 允许的动作 |
+|---|---|
+| `readonly` | 搜索与读取：文档、块、大纲、反链、属性、笔记本列表、系统和工作区信息 |
+| `authoring`（默认） | 以上 + 建文档、块 insert/append/prepend/update、属性 set、日记 create/append/prepend |
+| `full` | 官方全部 action：删除、移动、重命名、复制、笔记本管理、文件、SQL、导入导出、历史回滚、仓库、同步、HTTP、网页抓取 |
+
+改级别：编辑 `~/.config/dsh-siyuan/config.json`（例如 `{"profile": "readonly"}`），或设环境变量 `SIYUAN_MCP_PROFILE`。诊断（不打印 token）：
+
+```sh
+node node_modules/.bin/dsh-siyuan-bridge --doctor
+```
+
+状态目录 `~/.config/dsh-siyuan/`：可选的 `config.json`，以及 `audit.jsonl` 审计（只记时间/级别/工具/action/决策，权限 600，不含参数与笔记正文）。插件目录本身不被写入任何东西。
+
+### DSH plugin (English)
+
+The same repository is a DeepSeek Harness plugin: `dsh.bundle` in `package.json`
+points at `cordis.patch.yml`, which connects the harness to the local SiYuan
+desktop app's own MCP endpoint, registers its official note tools as
+`mcp__siyuan__<tool>`, and adds a `siyuan` skill describing the read-first,
+write-on-request etiquette. The bridge is `bridge/mcp-stdio.mjs` (Node, no
+dependencies); it resolves the SiYuan API token from the environment, from
+`~/.config/dsh-siyuan/config.json`, or from SiYuan's own workspace settings, so
+a normal install needs no configuration. One of three operation profiles —
+`readonly`, `authoring` (default) or `full` — is enforced on every `tools/call`,
+and `node node_modules/.bin/dsh-siyuan-bridge --doctor` reports the endpoint,
+the token's origin and the active profile without printing the token.
+
 
 ## 唯一需要手工填写的值
 

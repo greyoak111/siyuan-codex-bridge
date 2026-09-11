@@ -1,0 +1,42 @@
+{
+  "name": "dsh-siyuan",
+  "version": "0.1.0",
+  "description": "SiYuan (思源笔记) for DeepSeek Harness: bridges the local SiYuan MCP endpoint and registers its official note tools as mcp__siyuan__*.",
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "siyuan",
+    "notes",
+    "knowledge-base",
+    "mcp",
+    "model-context-protocol"
+  ],
+  "files": [
+    "bridge/",
+    "skills/",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "bin": {
+    "dsh-siyuan-bridge": "bridge/mcp-stdio.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-mcp-client": ">=0.0.1-rc.1 <0.1.0 || >=0.1.0-rc.1 <0.2.0-0"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/greyoak111/siyuan-codex-bridge.git"
+  }
+}

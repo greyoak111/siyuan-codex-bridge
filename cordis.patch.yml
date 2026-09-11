@@ -1,0 +1,52 @@
+# dsh-siyuan bundle patch: brings the local SiYuan (思源笔记) MCP server and its
+# usage skill into a DSH profile.
+#
+# Two rows, and nothing else:
+#
+#   1. `@deepseek-ai/dsh-mcp-client` connects to the bridge this package ships
+#      and registers the official SiYuan tools as `mcp__siyuan__<tool>`. The row
+#      name is a host package, so the host's own copy is the one loaded — this
+#      package never installs a second one.
+#
+#   2. `@deepseek-ai/dsh-skill-filesystem` contributes this package's `skills/`
+#      directory to the skill catalog, so the agent knows the read-first,
+#      write-on-request etiquette for the user's own notes.
+#
+# Both path expressions are relative to the PROFILE directory (`ctx.baseUrl`),
+# because a bundle patch is composed from there: the package is reachable as
+# `node_modules/<package name>` whether it was installed from npm, from a
+# GitHub source, or as a market generation linked into the profile.
+#
+# `process.execPath` is the Node the harness itself runs on, so no Python or
+# shell is required and the same row works on macOS, Linux and Windows.
+# ELECTRON_RUN_AS_NODE keeps an Electron-hosted harness from starting a second
+# application window instead of running the bridge as a script.
+#
+# Configuration (token, endpoint, operation profile) belongs to the user, not to
+# this file: the bridge resolves it from the environment, from
+# ~/.config/dsh-siyuan/config.json, or from SiYuan's own workspace settings.
+# Run `node node_modules/.bin/dsh-siyuan-bridge --doctor` to see what it found.
+
+- insert:
+    - id: mcp-siyuan
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: siyuan
+        transport: stdio
+        command: !!js process.execPath
+        args:
+          - !!js decodeURIComponent(new URL('node_modules/dsh-siyuan/bridge/mcp-stdio.mjs', ctx.baseUrl).pathname)
+        env:
+          ELECTRON_RUN_AS_NODE: '1'
+        toolCallTimeoutMs: 120000
+        failOnStartupError: false
+        reconnect:
+          enabled: true
+
+    - id: siyuan-skills
+      name: '@deepseek-ai/dsh-skill-filesystem'
+      config:
+        providerName: dsh-siyuan-skills
+        includeDefaultRoots: false
+        customSkillDirs:
+          - !!js decodeURIComponent(new URL('node_modules/dsh-siyuan/skills', ctx.baseUrl).pathname)
