@@ -286,12 +286,13 @@ function write(message) {
 }
 
 async function doctor(config) {
+  const profile = currentProfile(config)
   const report = [
     `state directory: ${stateDir()}`,
     `config file: ${config.configFile}${readJsonFile(config.configFile) === undefined ? ' (absent)' : ''}`,
     `endpoint: ${config.mcpUrl}`,
     `token: ${config.token ? `present (from ${config.tokenSource})` : 'MISSING — set it in the config file or in SiYuan itself'}`,
-    `operation profile: ${currentProfile(config)} (${PROFILE_SUMMARY[currentProfile(config)]})`,
+    `operation profile: ${profile} (${PROFILE_SUMMARY[profile]})`,
     ...config.notes.map((note) => `note: ${note}`),
   ]
   for (const line of report) process.stdout.write(`${line}\n`)
@@ -397,7 +398,10 @@ async function main() {
       .catch((error) => {
         // Keep the chain alive after an unexpected per-request failure so one
         // malformed upstream response cannot strand all following requests.
-        write(jsonRpcError(requestId, 'request failed: ' + safeLabel(error?.message ?? error), -32000))
+        // JSON-RPC notifications have no response at all, including on error.
+        if (requestId !== undefined) {
+          write(jsonRpcError(requestId, 'request failed: ' + safeLabel(error?.message ?? error), -32000))
+        }
       })
   })
 

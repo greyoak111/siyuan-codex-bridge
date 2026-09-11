@@ -1,6 +1,6 @@
 {
   "name": "dsh-siyuan",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "SiYuan (思源笔记) for DeepSeek Harness: bridges the local SiYuan MCP endpoint and registers its official note tools as mcp__siyuan__*.",
   "type": "module",
   "license": "MIT",
