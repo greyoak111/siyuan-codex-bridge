@@ -204,6 +204,14 @@ function jsonRpcError(id, message, code = -32002) {
   return payload
 }
 
+function requestIdFromLine(raw) {
+  try {
+    return JSON.parse(raw.trim())?.id
+  } catch {
+    return undefined
+  }
+}
+
 /** One bridge process serves one MCP session; SiYuan hands back its session id on initialize. */
 function createUpstream(config) {
   let sessionId = undefined
@@ -354,12 +362,15 @@ async function main() {
   }
 
   lines.on('line', (raw) => {
+    // Keep the id alongside this queued item so an unexpected exception can
+    // fail the matching JSON-RPC call immediately instead of causing a timeout.
+    const requestId = requestIdFromLine(raw)
     queue = queue
       .then(() => run(raw))
       .catch((error) => {
         // Keep the chain alive after an unexpected per-request failure so one
         // malformed upstream response cannot strand all following requests.
-        write(jsonRpcError(undefined, 'request failed: ' + safeLabel(error?.message ?? error), -32000))
+        write(jsonRpcError(requestId, 'request failed: ' + safeLabel(error?.message ?? error), -32000))
       })
   })
 
