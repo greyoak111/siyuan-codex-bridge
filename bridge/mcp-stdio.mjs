@@ -303,7 +303,12 @@ async function main() {
     + `save it as {"token": "…"} in ${config.configFile} or leave it in SiYuan's own settings and restart SiYuan so the bridge can read it.`
 
   const lines = createInterface({ input: process.stdin, crlfDelay: Infinity })
-  const queue = []
+  // Keep one promise chain for the whole stdio stream. The upstream calls are
+  // asynchronous; starting them independently lets a later, faster request
+  // write its response before an earlier, slower one. MCP clients generally
+  // tolerate out-of-order ids, but DSH's line-oriented transport and logs are
+  // much easier to reason about when responses retain arrival order.
+  let queue = Promise.resolve()
 
   /** Requests are answered in arrival order; a slow call must not reorder the stream. */
   const run = async (raw) => {
@@ -349,11 +354,17 @@ async function main() {
   }
 
   lines.on('line', (raw) => {
-    queue.push(run(raw))
+    queue = queue
+      .then(() => run(raw))
+      .catch((error) => {
+        // Keep the chain alive after an unexpected per-request failure so one
+        // malformed upstream response cannot strand all following requests.
+        write(jsonRpcError(undefined, 'request failed: ' + safeLabel(error?.message ?? error), -32000))
+      })
   })
 
   await new Promise((resolve) => lines.on('close', resolve))
-  await Promise.all(queue)
+  await queue
 }
 
 main().catch((error) => {
