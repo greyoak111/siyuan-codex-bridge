@@ -18,6 +18,21 @@
 **桥接不会启动思源**：它只通过网络跟 `127.0.0.1:6806` 说话，宿主启动不会连带打开你的笔记应用。
 思源没开时，桥接仍会本地应答 MCP 握手、并提供上一次见到的工具目录，所以工具不会在会话里凭空消失；
 此时调用会明确返回"SiYuan is not reachable"，你打开思源后下一次调用即恢复（会话失效会自动重新握手）。
+桥接还会**追加一个自己的 `ai` 工具**，把思源内置 AI（用你在思源里配的那把 API key）接到 MCP 上——
+思源自己的 MCP 端点只发布笔记工具，AI 与它的 agent 回路原本对客户端不可见：
+
+| `ai` 的 action | 做什么 | 档位 |
+|---|---|---|
+| `capabilities` | 列出 agent 能力（32 项，带 localWrite 标注） | readonly |
+| `chat` | 普通问答（`msg`，可选 `model`） | readonly |
+| `action` | 按块 ID 执行已配置的编辑器动作（`ids` + `name`） | authoring |
+| `editor` | 编辑器式对话（`input`，可选 `ids`/`history`） | authoring |
+| `agent` | 启动一次内置 agent 回合（流式聚合；可暂停等审批） | full |
+| `status` / `confirm` / `answer` / `permission` | 读取回合、批准工具调用、回答反问、设会话权限 | full |
+
+agent 是**交互式**的：它会在需要审批或提问时停下。桥接保持 SSE 流不关（关掉会取消这一回合），
+先返回当前状态与待办，之后用 `confirm`/`answer` 继续、用 `status` 读结果。
+
 工具目录的优先级是：**实时目录 → 本机缓存 → 包内快照**。也就是说，即便思源从未连上过（全新安装、还没打开过思源），插件也自带一份目录快照，工具不会显示成空；思源一旦应答即换成实时目录。快照可用 `node bridge/mcp-stdio.mjs --dump-catalog > bridge/tools-snapshot.json` 重新生成。
 
 **装完即用，不需要手填 token。** 桥接按 环境变量 `SIYUAN_API_TOKEN` → `~/.config/dsh-siyuan/config.json` → 思源自己的工作区配置（`~/.config/siyuan/workspace.json` 列出工作区，读其 `<工作区>/conf/conf.json` 的 `api.token`）的顺序解析；多数情况下最后一条就能找到，因为 token 本来就在思源自己的设置里。思源没启动时先打开思源桌面端。

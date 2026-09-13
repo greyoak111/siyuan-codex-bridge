@@ -124,12 +124,14 @@ test('the handshake survives SiYuan being absent, and calls recover when it appe
     const started = await first.send(initialize)
     assert.equal(started.result?.serverInfo?.name, 'SiYuan', JSON.stringify(started))
     const listed = await first.send(listTools(2))
-    assert.equal(listed.result.tools.length, 1)
+    // SiYuan's catalog comes through as-is, plus this bridge's own `ai` tool.
+    assert.deepEqual(listed.result.tools.filter((t) => t.name !== 'ai'), TOOLS)
+    assert.equal(listed.result.tools.at(-1).name, 'ai')
   } finally {
     first.child.stdin.end()
     first.child.kill()
+    await close(server)
   }
-  await close(server)
 
   // Second session, SiYuan closed: the client must still get a session and a
   // tool list — from the cache — while calls report the app as away.
@@ -140,7 +142,9 @@ test('the handshake survives SiYuan being absent, and calls recover when it appe
     assert.equal(started.result?.serverInfo?.name, 'dsh-siyuan')
 
     const listed = await offline.send(listTools(2))
-    assert.deepEqual(listed.result.tools, TOOLS, 'the cached catalog is what keeps the tools registered')
+    assert.deepEqual(listed.result.tools.filter((t) => t.name !== 'ai'), TOOLS,
+      'the cached catalog is what keeps the tools registered')
+    assert.equal(listed.result.tools.at(-1).name, 'ai')
     assert.match(listed.result._meta['dsh-siyuan/catalog'], /cached/)
 
     const refused = await offline.send(callTool(3))
@@ -157,7 +161,7 @@ test('the handshake survives SiYuan being absent, and calls recover when it appe
       assert.equal(live.result.content[0].text, 'answered')
 
       const refreshed = await offline.send(listTools(5))
-      assert.deepEqual(refreshed.result.tools, TOOLS)
+      assert.deepEqual(refreshed.result.tools.filter((t) => t.name !== 'ai'), TOOLS)
       assert.equal(refreshed.result._meta, undefined, 'a live catalog is not annotated as cached')
     } finally {
       await close(revived)
@@ -165,8 +169,8 @@ test('the handshake survives SiYuan being absent, and calls recover when it appe
   } finally {
     offline.child.stdin.end()
     offline.child.kill()
+    await rm(home, { recursive: true, force: true })
   }
-  await rm(home, { recursive: true, force: true })
 })
 
 test('a cold start with no cache is filled by the shipped snapshot', async () => {
@@ -187,6 +191,7 @@ test('a cold start with no cache is filled by the shipped snapshot', async () =>
       assert.equal(typeof tool.name, 'string')
       assert.equal(typeof tool.inputSchema, 'object')
     }
+    assert.equal(listed.result.tools.at(-1).name, 'ai', 'the bridge tool rides along with the snapshot')
     assert.match(listed.result._meta['dsh-siyuan/catalog'], /built-in snapshot/)
 
     const refused = await cold.send(callTool(3))

@@ -65,6 +65,8 @@ const READ_ACTIONS = {
   attr: ['get', 'batch-get'],
   system: ['version', 'current_time', 'workspace'],
   workspace: ['list', 'info'],
+  // SiYuan's own AI: a listing and a plain completion touch no note content.
+  ai: ['capabilities', 'chat'],
 }
 
 const AUTHORING_ACTIONS = {
@@ -72,6 +74,8 @@ const AUTHORING_ACTIONS = {
   block: ['insert', 'append', 'prepend', 'update'],
   attr: ['set', 'batch-set'],
   dailynote: ['create', 'append', 'prepend'],
+  // Editor actions rewrite block content, so they belong with the writers.
+  ai: ['action', 'editor'],
 }
 
 const PROFILES = ['readonly', 'authoring', 'full']
@@ -80,6 +84,63 @@ const PROFILE_SUMMARY = {
   readonly: 'search and read notes only',
   authoring: 'read plus document/block content writes',
   full: 'the complete official SiYuan tool surface',
+}
+
+/**
+ * The tool this bridge adds on top of SiYuan's own catalog.
+ *
+ * SiYuan's MCP endpoint publishes its note tools and nothing else, so its
+ * built-in AI — the model configured with the user's own API key, its editor
+ * actions, and its agent loop — is unreachable from a client. The HTTP API that
+ * drives all of it is right there on the same loopback port, and this bridge is
+ * the honest place to expose it: one aggregate tool, gated by the same
+ * operation profile as everything else.
+ *
+ * `full` gates the agent actions by construction: they appear in neither action
+ * table, and an action outside both tables is only ever allowed at `full`.
+ */
+const AI_TOOL = {
+  name: 'ai',
+  description: 'SiYuan\'s own AI, the model configured in SiYuan settings with the user\'s API key. '
+    + 'Actions: capabilities() lists the agent capabilities with their read/write effects; '
+    + 'chat(msg, model?) answers a prompt; action(ids, action) runs a configured editor action on blocks; '
+    + 'editor(input, ids?, action?, history?) is the editor chat; '
+    + 'agent(message, sessionID?, timeoutMs?) starts one built-in agent turn and returns its state — '
+    + 'the agent can call SiYuan tools and may need approval; '
+    + 'status(sessionID) reads a running turn; confirm(confirmID, approved, always?) answers an approval request; '
+    + 'answer(questionID, answers) answers a question the agent asked; '
+    + 'permission(sessionID, permissionMode) sets that session\'s mode ("confirm" or "allowSession"). '
+    + 'The agent actions require the `full` operation profile.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      action: {
+        type: 'string',
+        enum: ['capabilities', 'chat', 'action', 'editor', 'agent', 'status', 'confirm', 'answer', 'permission'],
+      },
+      msg: { type: 'string', description: 'chat: the prompt.' },
+      model: { type: 'string', description: 'chat: a model id; defaults to SiYuan\'s agent model.' },
+      ids: { type: 'array', items: { type: 'string' }, description: 'action/editor: block ids to work on.' },
+      input: { type: 'string', description: 'editor: the instruction.' },
+      message: { type: 'string', description: 'agent: what to ask the agent to do.' },
+      sessionID: { type: 'string', description: 'agent/status/permission: an existing session; omit to start a new one.' },
+      timeoutMs: { type: 'number', description: 'agent: how long to wait for output before returning a running state (default 60000).' },
+      confirmID: { type: 'string', description: 'confirm: the id from a pending approval.' },
+      approved: { type: 'boolean', description: 'confirm: approve the pending call.' },
+      always: { type: 'boolean', description: 'confirm: approve this capability for the rest of the session.' },
+      questionID: { type: 'string', description: 'answer: the id from a pending question.' },
+      answers: { type: 'array', items: { type: 'string' }, description: 'answer: the chosen answers.' },
+      permissionMode: { type: 'string', enum: ['confirm', 'allowSession'], description: 'permission: the mode to set.' },
+      history: { type: 'array', items: { type: 'object' }, description: 'editor: prior messages.' },
+    },
+    required: ['action'],
+    additionalProperties: true,
+  },
+}
+
+/** Serve SiYuan's catalog plus this bridge's own tool, whichever catalog we have. */
+function withBridgeTools(tools) {
+  return [...(Array.isArray(tools) ? tools : []).filter((tool) => tool?.name !== AI_TOOL.name), AI_TOOL]
 }
 
 /** The user-owned state directory; nothing is written inside the package. */
@@ -439,6 +500,279 @@ function write(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`)
 }
 
+/**
+ * SiYuan's own AI, driven over its HTTP API.
+ *
+ * The plain endpoints answer in one reply; the agent streams Server-Sent Events
+ * (`event:<type>` / `data:<json>`, in that exact framing) and *waits* between
+ * events when it wants approval or an answer — closing the response cancels the
+ * run, so a turn is kept open here and polled instead of being request-scoped.
+ * Runs live in this process, keyed by session, capped so a long session cannot
+ * grow without bound.
+ */
+const AGENT_RUNS = new Map()
+const AGENT_RUN_LIMIT = 8
+
+function aiRequest(config, path, body) {
+  const headers = { 'Content-Type': 'application/json' }
+  if (config.token) headers.Authorization = `Token ${config.token}`
+  return fetch(`${config.apiUrl}${path}`, { method: 'POST', headers, body: JSON.stringify(body ?? {}) })
+}
+
+async function aiJson(config, path, body) {
+  let response
+  try {
+    response = await aiRequest(config, path, body)
+  } catch {
+    return { message: `SiYuan is not reachable at ${config.apiUrl}. Open the SiYuan desktop app and try again.` }
+  }
+  const text = await response.text()
+  let payload
+  try {
+    payload = JSON.parse(text)
+  } catch {
+    return { message: `SiYuan answered ${path} with something this bridge could not parse.` }
+  }
+  if (payload?.code !== 0) return { message: `SiYuan refused ${path}: ${safeLabel(payload?.msg ?? 'unknown error')}` }
+  return { data: payload.data }
+}
+
+function agentRunState(run) {
+  return {
+    sessionID: run.sessionID,
+    status: run.status,
+    text: run.text,
+    ...(run.toolCalls.length > 0 ? { tools: run.toolCalls.slice(-8) } : {}),
+    ...(run.pending === null ? {} : { pending: run.pending }),
+    ...(run.error === undefined ? {} : { error: run.error }),
+    ...(run.usage === undefined ? {} : { usage: run.usage }),
+  }
+}
+
+/** Anything the caller must do before the turn can continue, phrased for a model. */
+function agentRunHint(run) {
+  if (run.status === 'awaiting_confirm') {
+    return `The agent wants to call ${run.pending.name}. Approve with action "confirm" and confirmID ${run.pending.confirmID} `
+      + `(set always true to allow that capability for the session), or refuse with approved false. Arguments: ${safeLabel(JSON.stringify(run.pending.arguments), 400)}`
+  }
+  if (run.status === 'awaiting_answer') {
+    return `The agent asked a question. Answer with action "answer" and questionID ${run.pending.questionID}. Question: ${safeLabel(JSON.stringify(run.pending.arguments), 400)}`
+  }
+  if (run.status === 'running') return 'Still running. Read it again with action "status" and the same sessionID.'
+  if (run.status === 'error') return 'The turn ended with an error.'
+  return 'The turn finished.'
+}
+
+function parseSseChunk(buffer, onEvent) {
+  let rest = buffer
+  let boundary = rest.indexOf('\n\n')
+  while (boundary !== -1) {
+    const frame = rest.slice(0, boundary)
+    rest = rest.slice(boundary + 2)
+    let type = 'message'
+    const data = []
+    for (const line of frame.split('\n')) {
+      if (line.startsWith('event:')) type = line.slice(6).trim()
+      else if (line.startsWith('data:')) data.push(line.slice(5).trim())
+    }
+    if (data.length > 0) {
+      try {
+        onEvent(type, JSON.parse(data.join('\n')))
+      } catch {
+        // A frame we cannot read is not worth failing the whole turn over.
+      }
+    }
+    boundary = rest.indexOf('\n\n')
+  }
+  return rest
+}
+
+/** Start one agent turn and consume its stream in the background. */
+async function startAgentRun(config, args) {
+  const sessionID = typeof args.sessionID === 'string' && args.sessionID !== ''
+    ? args.sessionID
+    : `dsh-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+  const run = {
+    sessionID,
+    status: 'running',
+    text: '',
+    thinking: '',
+    toolCalls: [],
+    pending: null,
+    usage: undefined,
+    error: undefined,
+    startedAt: Date.now(),
+  }
+
+  let response
+  try {
+    response = await aiRequest(config, '/api/ai/agent/chat', {
+      sessionID,
+      message: String(args.message ?? args.msg ?? ''),
+      language: typeof args.language === 'string' ? args.language : 'zh-CN',
+      references: [],
+      editorContext: {},
+      // Declare no frontend capabilities: this bridge cannot render a browser
+      // or answer on the user's behalf, and claiming otherwise would make the
+      // agent wait for something that will never arrive.
+      frontendCapabilities: [],
+      ...(typeof args.model === 'string' && args.model !== '' ? { model: args.model } : {}),
+    })
+  } catch {
+    return { message: `SiYuan is not reachable at ${config.apiUrl}. Open the SiYuan desktop app and try again.` }
+  }
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '')
+    return { message: `SiYuan refused the agent turn (HTTP ${response.status}). ${safeLabel(detail, 200)}` }
+  }
+  if (response.headers.get('content-type')?.includes('application/json') === true) {
+    // A declined turn comes back as JSON instead of a stream: no provider, busy session, bad args.
+    const payload = await response.json().catch(() => undefined)
+    return { message: `SiYuan refused the agent turn: ${safeLabel(payload?.msg ?? 'unknown error')}` }
+  }
+
+  AGENT_RUNS.set(sessionID, run)
+  while (AGENT_RUNS.size > AGENT_RUN_LIMIT) AGENT_RUNS.delete(AGENT_RUNS.keys().next().value)
+
+  const finish = (status) => {
+    if (run.status === 'running' || run.status === 'awaiting_confirm' || run.status === 'awaiting_answer') run.status = status
+  }
+
+  void (async () => {
+    let buffer = ''
+    try {
+      for await (const chunk of response.body) {
+        buffer = parseSseChunk(buffer + Buffer.from(chunk).toString('utf8'), (type, data) => {
+          if (type === 'content') run.text += String(data.token ?? '')
+          else if (type === 'thinking' || type === 'reasoning') run.thinking += String(data.reasoning ?? data.token ?? '')
+          else if (type === 'tool_call') run.toolCalls.push({ name: data.name, callID: data.callID })
+          else if (type === 'tool_result') run.toolCalls.push({ name: data.name, result: safeLabel(data.result, 300) })
+          else if (type === 'confirm') {
+            run.pending = { kind: 'confirm', confirmID: data.confirmID, name: data.name, arguments: data.arguments, effects: data.effects, forced: data.forced }
+            run.status = 'awaiting_confirm'
+          } else if (type === 'question') {
+            run.pending = { kind: 'question', questionID: data.questionID, arguments: data.arguments }
+            run.status = 'awaiting_answer'
+          } else if (type === 'usage') run.usage = data
+          else if (type === 'error') {
+            run.error = safeLabel(data.message, 300)
+            finish('error')
+          } else if (type === 'done') finish('done')
+          else if (type === 'interrupted') {
+            run.error = safeLabel(data.message, 300)
+            finish('error')
+          }
+        })
+      }
+    } catch {
+      run.error = 'the stream from SiYuan ended unexpectedly'
+    }
+    finish('done')
+    AGENT_RUNS.get(sessionID) === run && (run.finishedAt = Date.now())
+  })()
+
+  // The caller gets an answer as soon as there is one to give: the first pause or
+  // the end of the turn, whichever comes first, and never more than the budget.
+  const budget = Number.isFinite(args.timeoutMs) && args.timeoutMs > 0 ? Math.min(args.timeoutMs, 240_000) : 60_000
+  const deadline = Date.now() + budget
+  while (Date.now() < deadline) {
+    if (run.status !== 'running') break
+    await new Promise((resolve) => setTimeout(resolve, 200))
+  }
+  return { state: agentRunState(run), hint: agentRunHint(run) }
+}
+
+/** Run one `ai` action and return the tool result text. */
+async function callSiyuanAi(config, args) {
+  const action = String(args?.action ?? '')
+  switch (action) {
+    case 'capabilities': {
+      const { data, message } = await aiJson(config, '/api/ai/lsCapabilities', {})
+      if (message !== undefined) return { text: message, isError: true }
+      const list = Array.isArray(data) ? data : []
+      const lines = list.map((capability) => {
+        const writes = (capability.actions ?? []).filter((a) => a?.effects?.localWrite === true).map((a) => a.name)
+        return `- ${capability.name}${capability.available === false ? ' (unavailable)' : ''}${writes.length > 0 ? ` — writes: ${writes.join(', ')}` : ''}`
+      })
+      return { text: `SiYuan agent capabilities (${list.length}):\n${lines.join('\n')}` }
+    }
+    case 'chat': {
+      if (typeof args.msg !== 'string' || args.msg === '') return { text: 'chat requires msg.', isError: true }
+      const { data, message } = await aiJson(config, '/api/ai/chatGPT', {
+        msg: args.msg,
+        ...(typeof args.model === 'string' && args.model !== '' ? { model: args.model } : {}),
+      })
+      if (message !== undefined) return { text: message, isError: true }
+      return { text: String(data ?? '') }
+    }
+    case 'action': {
+      if (!Array.isArray(args.ids) || args.ids.length === 0) return { text: 'action requires ids (block ids).', isError: true }
+      if (typeof args.action2 !== 'string' && typeof args.editorAction !== 'string' && typeof args.name !== 'string') {
+        return { text: 'action requires the editor action name in `name`.', isError: true }
+      }
+      const { data, message } = await aiJson(config, '/api/ai/chatGPTWithAction', {
+        ids: args.ids.map(String),
+        action: String(args.name ?? args.editorAction ?? args.action2),
+      })
+      if (message !== undefined) return { text: message, isError: true }
+      return { text: String(data ?? '') }
+    }
+    case 'editor': {
+      if (typeof args.input !== 'string' || args.input === '') return { text: 'editor requires input.', isError: true }
+      const { data, message } = await aiJson(config, '/api/ai/editor/chat', {
+        taskID: typeof args.taskID === 'string' ? args.taskID : '',
+        ids: Array.isArray(args.ids) ? args.ids.map(String) : [],
+        input: args.input,
+        action: typeof args.name === 'string' ? args.name : '',
+        history: Array.isArray(args.history) ? args.history : [],
+      })
+      if (message !== undefined) return { text: message, isError: true }
+      return { text: typeof data === 'string' ? data : JSON.stringify(data ?? null) }
+    }
+    case 'agent': {
+      if (typeof args.message !== 'string' || args.message === '') return { text: 'agent requires message.', isError: true }
+      const { state, hint, message } = await startAgentRun(config, args)
+      if (message !== undefined) return { text: message, isError: true }
+      return { text: `${hint}\n\n${JSON.stringify(state, null, 1)}` }
+    }
+    case 'status': {
+      const run = AGENT_RUNS.get(String(args.sessionID ?? ''))
+      if (run === undefined) return { text: `No agent turn is known for session ${JSON.stringify(safeLabel(args.sessionID ?? '', 64))}.`, isError: true }
+      return { text: `${agentRunHint(run)}\n\n${JSON.stringify(agentRunState(run), null, 1)}` }
+    }
+    case 'confirm': {
+      if (typeof args.confirmID !== 'string' || args.confirmID === '') return { text: 'confirm requires confirmID.', isError: true }
+      const { data, message } = await aiJson(config, '/api/ai/agent/confirm', {
+        confirmID: args.confirmID,
+        approved: args.approved !== false,
+        always: args.always === true,
+      })
+      if (message !== undefined) return { text: message, isError: true }
+      return { text: `answered the approval request: ${JSON.stringify(data ?? null)}` }
+    }
+    case 'answer': {
+      if (typeof args.questionID !== 'string' || args.questionID === '') return { text: 'answer requires questionID.', isError: true }
+      const { data, message } = await aiJson(config, '/api/ai/agent/question', {
+        questionID: args.questionID,
+        answers: Array.isArray(args.answers) ? args.answers.map(String) : [],
+      })
+      if (message !== undefined) return { text: message, isError: true }
+      return { text: `sent the answer: ${JSON.stringify(data ?? null)}` }
+    }
+    case 'permission': {
+      if (typeof args.sessionID !== 'string' || args.sessionID === '') return { text: 'permission requires sessionID.', isError: true }
+      const mode = String(args.permissionMode ?? '')
+      if (mode !== 'confirm' && mode !== 'allowSession') return { text: 'permissionMode must be "confirm" or "allowSession".', isError: true }
+      const { data, message } = await aiJson(config, '/api/ai/agent/setPermission', { sessionID: args.sessionID, permissionMode: mode })
+      if (message !== undefined) return { text: message, isError: true }
+      return { text: `session permission mode is now ${mode}` }
+    }
+    default:
+      return { text: `unknown ai action ${JSON.stringify(safeLabel(action, 32))}`, isError: true }
+  }
+}
+
 async function doctor(config) {
   const profile = currentProfile(config)
   const report = [
@@ -606,7 +940,7 @@ async function main() {
         const { reply, unreachable } = await upstream.request(message)
         if (unreachable === undefined && reply?.error === undefined) {
           writeToolsCache(reply?.result)
-          write(reply)
+          write({ ...reply, result: { ...reply.result, tools: withBridgeTools(reply?.result?.tools) } })
           return
         }
       }
@@ -616,7 +950,7 @@ async function main() {
         jsonrpc: '2.0',
         id: message.id,
         result: {
-          tools: (cached ?? snapshot)?.tools ?? [],
+          tools: withBridgeTools((cached ?? snapshot)?.tools),
           _meta: { 'dsh-siyuan/catalog': describeCatalog(cached, snapshot) },
         },
       })
@@ -639,6 +973,21 @@ async function main() {
         return
       }
       audit(profile, tool, args?.action, 'allowed')
+
+      // `ai` is this bridge's own tool: SiYuan's MCP endpoint does not know it,
+      // and its work happens over SiYuan's HTTP API instead.
+      if (tool === AI_TOOL.name) {
+        const outcome = await callSiyuanAi(config, args)
+        write({
+          jsonrpc: '2.0',
+          id: message.id,
+          result: {
+            content: [{ type: 'text', text: outcome.text }],
+            ...(outcome.isError === true ? { isError: true } : {}),
+          },
+        })
+        return
+      }
     } else if (message.method === 'ping') {
       write({ jsonrpc: '2.0', id: message.id, result: {} })
       return

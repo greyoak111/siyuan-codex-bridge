@@ -11,7 +11,7 @@ notebook material: read freely, write only on purpose.
 
 ## What is available
 
-- Tools arrive as `mcp__siyuan__<tool>` — 29 aggregate tools (`search`,
+- Tools arrive as `mcp__siyuan__<tool>` — SiYuan's 29 aggregate tools (`search`,
   `document`, `block`, `outline`, `ref`, `attr`, `notebook`, `dailynote`, …).
   Pass the operation as `{"action": "...", ...}`.
 - The bridge talks to SiYuan's own official MCP endpoint over loopback. Never
@@ -78,6 +78,15 @@ neither does the harness.
 | `readonly` | search and reads: documents, blocks, outlines, references, attributes, notebook list, system and workspace info |
 | `authoring` (default) | the above plus document create and block insert/append/prepend/update, attribute set, daily-note append |
 | `full` | the complete official surface, including delete, move, rename, notebook administration, file, SQL, import/export, history, repository, sync and network actions |
+
+The bridge adds one tool of its own, `mcp__siyuan__ai`, which reaches SiYuan's **built-in**
+AI (the model configured in SiYuan with the user's own API key): `capabilities` and `chat`
+read only, `action`/`editor` rewrite block content, and `agent`/`status`/`confirm`/`answer`/
+`permission` drive SiYuan's own agent loop — those are `full` only, because that loop can write
+to the notebook through its own tools. An agent turn may pause for approval: relay the pending
+call to the user, then continue with `confirm`, and read the result with `status`. The user pays
+for these calls, so use them when SiYuan's own prompts or editor actions are the point — not as
+a second opinion.
 
 Change it in `~/.config/dsh-siyuan/config.json` (`{"profile": "readonly"}`) or
 with the `SIYUAN_MCP_PROFILE` environment variable, which wins over the file: an
