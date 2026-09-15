@@ -8,9 +8,11 @@
  * header. Nothing here parses or rewrites `.sy` files or `siyuan.db`: the
  * official endpoint stays the only way notes are read or written.
  *
- * It starts no process and opens no window: the only thing it does outside its
- * own stdio is talk to that loopback endpoint. SiYuan is the user's app to
- * open, and a harness restarting is not a reason to launch it.
+ * It opens no window of its own, and by default starts nothing at all: the only
+ * thing it does outside its own stdio is talk to that loopback endpoint. Setting
+ * `launchOnCall` lets a *tool call* bring SiYuan up when it is closed — never the
+ * handshake, so a harness restart is still not a reason for the notes app to
+ * appear.
  *
  * Because SiYuan is a desktop app that gets closed, the bridge answers the MCP
  * handshake and `tools/list` itself: `initialize` goes upstream when the app is
@@ -42,6 +44,7 @@
  */
 
 import { appendFileSync, chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { spawn } from 'node:child_process'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
@@ -156,6 +159,16 @@ function readJsonFile(path) {
   }
 }
 
+/** A boolean-ish config value: true/1/yes/on and their negatives, else undefined. */
+function parseSwitch(value) {
+  if (typeof value === 'boolean') return value
+  if (typeof value !== 'string') return undefined
+  const text = value.trim().toLowerCase()
+  if (['1', 'true', 'yes', 'on'].includes(text)) return true
+  if (['0', 'false', 'no', 'off'].includes(text)) return false
+  return undefined
+}
+
 function normalizeProfile(value) {
   const raw = String(value ?? '').trim().toLowerCase()
   const alias = { read: 'readonly', edit: 'authoring' }
@@ -209,6 +222,13 @@ function resolveConfig() {
       ?? `${apiUrl}/mcp`,
   )
 
+  // Off by default: a stranger installing this must not find their notes app
+  // opening itself. On, it launches only on a real tool call — never on the
+  // handshake, so starting the harness still starts nothing.
+  const launchOnCall = parseSwitch(process.env.SIYUAN_LAUNCH_ON_CALL) ?? parseSwitch(file.launchOnCall) ?? false
+  const launchCommand = String(process.env.SIYUAN_LAUNCH_COMMAND ?? file.launchCommand ?? '').trim()
+  const launchTimeoutMs = Number(process.env.SIYUAN_LAUNCH_TIMEOUT_MS ?? file.launchTimeoutMs ?? 60_000)
+
   const profile = normalizeProfile(file.profile)
     ?? normalizeProfile(process.env.SIYUAN_MCP_PROFILE)
     ?? DEFAULTS.profile
@@ -216,7 +236,7 @@ function resolveConfig() {
     notes.push(`ignored invalid profile "${file.profile}" in ${configFile}`)
   }
 
-  return { apiUrl, configFile, mcpUrl, notes, profile, token, tokenSource }
+  return { apiUrl, configFile, launchCommand, launchOnCall, launchTimeoutMs, mcpUrl, notes, profile, token, tokenSource }
 }
 
 /**
@@ -380,6 +400,88 @@ function writeToolsCache(result) {
   } catch {
     // A cache miss only costs a session started with no tools listed.
   }
+}
+
+/**
+ * Is the app answering on its loopback API right now?
+ *
+ * A plain HTTP probe rather than an MCP call: it is what decides whether a
+ * launch is needed, and it must not depend on the session handshake.
+ */
+async function siyuanAnswers(config) {
+  try {
+    const response = await fetch(`${config.apiUrl}/api/system/version`, { signal: AbortSignal.timeout(2000) })
+    return response.ok
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The environment a launched app is handed: the user's own, minus the keys that
+ * make a Mac app misidentify itself or start as something it is not.
+ *
+ * Dropping the harmful keys rather than building a minimal environment is
+ * deliberate: a launcher the user configured on their own PATH, or one that
+ * wants their locale, keeps working. What goes is exactly what would break the
+ * app — `__CF*` carries the bundle identity of whichever process started it,
+ * `ELECTRON_*` (notably ELECTRON_RUN_AS_NODE) would run the app as a plain node
+ * process, `NODE_*` can inject options into it, and `DSH_*`/`SIYUAN_*` are this
+ * harness's and this bridge's own settings, not the app's.
+ */
+function launchEnvironment() {
+  const environment = {}
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value === undefined) continue
+    if (key.startsWith('__CF')) continue
+    if (key.startsWith('DSH_') || key.startsWith('SIYUAN_')) continue
+    if (key.startsWith('ELECTRON_') || key.startsWith('NODE_')) continue
+    environment[key] = value
+  }
+  return environment
+}
+
+/**
+ * Launch SiYuan when a call needs it and it is not running.
+ *
+ * Only ever from a `tools/call`: the handshake and the catalog are answered
+ * locally, so starting the harness, or a client merely listing tools, still
+ * starts nothing. Waiting for an actual call is the difference between "the
+ * agent reached for the notes app" and "opening my editor opened my notes app".
+ *
+ * Opt-in, because a plugin that starts a desktop application on its own is a
+ * surprise nobody asked for by default.
+ */
+async function ensureSiyuanRunning(config) {
+  if (config.launchOnCall !== true) return false
+  if (await siyuanAnswers(config)) return true
+
+  const command = config.launchCommand !== '' ? config.launchCommand : defaultLaunchCommand()
+  if (command === undefined) return false
+  try {
+    const child = spawn('/bin/sh', ['-c', command], {
+      detached: true,
+      stdio: 'ignore',
+      env: launchEnvironment(),
+    })
+    child.unref()
+  } catch {
+    return false
+  }
+
+  const deadline = Date.now() + (Number.isFinite(config.launchTimeoutMs) ? config.launchTimeoutMs : 60_000)
+  while (Date.now() < deadline) {
+    if (await siyuanAnswers(config)) return true
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+  }
+  return false
+}
+
+/** The desktop app this bridge knows how to start, or undefined on a platform it does not. */
+function defaultLaunchCommand() {
+  if (process.env.SIYUAN_APP) return `"${process.env.SIYUAN_APP}/Contents/MacOS/SiYuan"`
+  if (process.platform === 'darwin') return '/Applications/SiYuan.app/Contents/MacOS/SiYuan'
+  return undefined
 }
 
 /**
@@ -781,6 +883,9 @@ async function doctor(config) {
     `endpoint: ${config.mcpUrl}`,
     `token: ${config.token ? `present (from ${config.tokenSource})` : 'MISSING — set it in the config file or in SiYuan itself'}`,
     `operation profile: ${profile} (${PROFILE_SUMMARY[profile]})`,
+    `launch on call: ${config.launchOnCall === true
+      ? `on — a tool call starts ${config.launchCommand !== '' ? config.launchCommand : (defaultLaunchCommand() ?? 'nothing on this platform')} and waits up to ${config.launchTimeoutMs} ms`
+      : 'off — a call answers "not reachable" instead of starting the app'}`,
     // The origin, phrased for someone reading a report rather than for a client
     // browsing while offline: `describeCatalog` says "while SiYuan was
     // unreachable", which is true of the served copy and misleading here.
@@ -973,6 +1078,9 @@ async function main() {
         return
       }
       audit(profile, tool, args?.action, 'allowed')
+
+      // A real call is the moment to bring the app up, if that is switched on.
+      await ensureSiyuanRunning(config)
 
       // `ai` is this bridge's own tool: SiYuan's MCP endpoint does not know it,
       // and its work happens over SiYuan's HTTP API instead.

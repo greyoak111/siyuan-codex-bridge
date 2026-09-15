@@ -30,10 +30,15 @@ A snapshot entry can name a tool the running SiYuan does not have; an
 that needs the app — they report "SiYuan is not reachable" until it is open,
 then work again on the very next call, with nothing restarted.
 
-**Never start SiYuan on your own initiative.** It is the user's app, and opening
-it as a side effect of the harness starting is not this bridge's business. If a
-call reports it as unreachable, say so and ask the user to open it; run
-`siyuan-ensure` (which does start it) only when they agree or ask for it.
+**Starting SiYuan is the user's switch, not your habit.** An installed bridge
+never starts it: opening the harness, or a client listing tools, starts nothing.
+If the user turns on `launchOnCall` (`{"launchOnCall": true}` in
+`~/.config/dsh-siyuan/config.json`, or `SIYUAN_LAUNCH_ON_CALL=1`), then a genuine
+tool call is what brings the app up, and the bridge waits for it to answer — so
+with that switch on, just make the call that is actually needed; do not launch
+the app yourself on top of it, and do not start it merely to look around. If it
+is off and a call reports SiYuan as unreachable, say so and ask the user to open
+it, or to turn the switch on; run `siyuan-ensure` only when they agree or ask.
 `node node_modules/.bin/dsh-siyuan-bridge --doctor` prints the endpoint, where
 the token came from, the active operation profile and the cached catalog —
 without printing the token.
