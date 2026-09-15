@@ -262,6 +262,24 @@ function currentProfile(config) {
     ?? config.profile
 }
 
+/**
+ * The launch settings to act on for one call, read fresh.
+ *
+ * The same reason {@link currentProfile} is read per call: whether the app may
+ * be started is a knob the user turns while the bridge keeps running, and a
+ * switch frozen at startup would silently ignore the file they just edited. The
+ * environment still outranks the config file, so a deployment that turned this
+ * off cannot be overruled by a stray key.
+ */
+function currentLaunchSettings(config) {
+  const file = readJsonFile(config.configFile)
+  return {
+    launchOnCall: parseSwitch(process.env.SIYUAN_LAUNCH_ON_CALL) ?? parseSwitch(file?.launchOnCall) ?? config.launchOnCall,
+    launchCommand: String(process.env.SIYUAN_LAUNCH_COMMAND ?? file?.launchCommand ?? config.launchCommand ?? '').trim(),
+    launchTimeoutMs: Number(process.env.SIYUAN_LAUNCH_TIMEOUT_MS ?? file?.launchTimeoutMs ?? config.launchTimeoutMs),
+  }
+}
+
 /** Keep a live token out of anything this process writes or prints. */
 function redact(value, token) {
   if (!token) return value
@@ -453,10 +471,11 @@ function launchEnvironment() {
  * surprise nobody asked for by default.
  */
 async function ensureSiyuanRunning(config) {
-  if (config.launchOnCall !== true) return false
+  const settings = currentLaunchSettings(config)
+  if (settings.launchOnCall !== true) return false
   if (await siyuanAnswers(config)) return true
 
-  const command = config.launchCommand !== '' ? config.launchCommand : defaultLaunchCommand()
+  const command = settings.launchCommand !== '' ? settings.launchCommand : defaultLaunchCommand()
   if (command === undefined) return false
   try {
     const child = spawn('/bin/sh', ['-c', command], {
@@ -469,7 +488,7 @@ async function ensureSiyuanRunning(config) {
     return false
   }
 
-  const deadline = Date.now() + (Number.isFinite(config.launchTimeoutMs) ? config.launchTimeoutMs : 60_000)
+  const deadline = Date.now() + (Number.isFinite(settings.launchTimeoutMs) ? settings.launchTimeoutMs : 60_000)
   while (Date.now() < deadline) {
     if (await siyuanAnswers(config)) return true
     await new Promise((resolve) => setTimeout(resolve, 1000))

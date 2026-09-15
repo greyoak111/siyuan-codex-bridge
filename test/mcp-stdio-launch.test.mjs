@@ -191,6 +191,36 @@ test('the handshake and the catalog never start SiYuan, even with launchOnCall o
   }
 })
 
+test('the switch is read per call, so turning it on needs no restart', async () => {
+  const f = await fixture(false)
+  const bridgeProcess = startBridge(f)
+  const siyuan = fakeSiyuan()
+  let serving
+  try {
+    await bridgeProcess.send(initialize)
+    const before = await bridgeProcess.send(callTool(2))
+    assert.match(before.error?.message ?? '', /not reachable/)
+    assert.equal(existsSync(f.marker), false)
+
+    // The user edits the config while the bridge is running — the same trap the
+    // operation profile had, and the same answer: read it again on the next call.
+    await writeFile(join(f.home, 'config.json'), JSON.stringify({ launchOnCall: true }))
+    const answered = bridgeProcess.send(callTool(3))
+    assert.equal(await waitForFile(f.marker, 5000), true, 'the next call picks the switch up')
+    serving = new Promise((resolve) => siyuan.listen(f.port, '127.0.0.1', resolve))
+
+    const reply = await answered
+    assert.equal(reply.error, undefined, `call after the switch: ${JSON.stringify(reply)}`)
+    assert.equal(textOf(reply), 'started and answered')
+  } finally {
+    await serving
+    await new Promise((resolve) => siyuan.close(resolve))
+    bridgeProcess.child.stdin.end()
+    bridgeProcess.child.kill()
+    await rm(f.home, { recursive: true, force: true })
+  }
+})
+
 test('a tool call brings SiYuan up and then goes through', async () => {
   const f = await fixture(true)
   const bridgeProcess = startBridge(f)

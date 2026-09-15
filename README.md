@@ -24,6 +24,7 @@
 **可以让"真正调用"顺手把思源拉起来**（默认关闭，需要你显式打开）：在 `~/.config/dsh-siyuan/config.json` 里加
 `{"launchOnCall": true}`（或设 `SIYUAN_LAUNCH_ON_CALL=1`）。打开后只有一次真正的 `tools/call` 会去启动思源——
 握手、列目录、宿主启动都不会，这正是"agent 伸手去拿笔记应用"和"我一开编辑器笔记应用自己弹出来了"的区别。
+这个开关和操作级别一样是**每次调用现读**的：改完 `config.json`，下一次调用即生效，不用重启桥接或 harness。
 启动命令默认是 `/Applications/SiYuan.app/Contents/MacOS/SiYuan`（可用 `SIYUAN_APP` 换 App 路径，或用
 `launchCommand` / `SIYUAN_LAUNCH_COMMAND` 完全自定义），等待上限默认 60 秒（`launchTimeoutMs` / `SIYUAN_LAUNCH_TIMEOUT_MS`）。
 拉起时会把环境里会**弄坏 Mac 应用**的键摘掉后交给它：`__CFBundleIdentifier`（agent shell 会导出它，
