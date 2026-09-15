@@ -16,9 +16,21 @@
 - 命令行（GitHub 源）：`dsh plugin --profile web add github:greyoak111/siyuan-codex-bridge`
 - 命令行（npm 源，预构建、免 allowBuilds 批准）：`dsh plugin --profile web add dsh-siyuan-notes`
 
-**桥接不会启动思源**：它只通过网络跟 `127.0.0.1:6806` 说话，宿主启动不会连带打开你的笔记应用。
+**宿主启动不会连带打开思源。** 桥接只通过网络跟 `127.0.0.1:6806` 说话，握手和工具目录都在本地应答，
+所以打开编辑器、或客户端来问“有哪些工具”，都不会启动任何桌面应用。
 思源没开时，桥接仍会本地应答 MCP 握手、并提供上一次见到的工具目录，所以工具不会在会话里凭空消失；
 此时调用会明确返回"SiYuan is not reachable"，你打开思源后下一次调用即恢复（会话失效会自动重新握手）。
+
+**可以让"真正调用"顺手把思源拉起来**（默认关闭，需要你显式打开）：在 `~/.config/dsh-siyuan/config.json` 里加
+`{"launchOnCall": true}`（或设 `SIYUAN_LAUNCH_ON_CALL=1`）。打开后只有一次真正的 `tools/call` 会去启动思源——
+握手、列目录、宿主启动都不会，这正是"agent 伸手去拿笔记应用"和"我一开编辑器笔记应用自己弹出来了"的区别。
+启动命令默认是 `/Applications/SiYuan.app/Contents/MacOS/SiYuan`（可用 `SIYUAN_APP` 换 App 路径，或用
+`launchCommand` / `SIYUAN_LAUNCH_COMMAND` 完全自定义），等待上限默认 60 秒（`launchTimeoutMs` / `SIYUAN_LAUNCH_TIMEOUT_MS`）。
+拉起时会把环境里会**弄坏 Mac 应用**的键摘掉后交给它：`__CFBundleIdentifier`（agent shell 会导出它，
+Electron 应用继承后会误判自己的 bundle，约 80 毫秒后静默退出、退出码 0、日志空白）、`ELECTRON_*`
+（尤其 `ELECTRON_RUN_AS_NODE` 会让 App 变成一个 node 进程）、`NODE_*`、以及本桥接自己的 `DSH_*`/`SIYUAN_*`；
+其余（`HOME`、`PATH`、区域设置等）原样保留，所以你自定义的启动脚本仍然可用。
+
 桥接还会**追加一个自己的 `ai` 工具**，把思源内置 AI（用你在思源里配的那把 API key）接到 MCP 上——
 思源自己的 MCP 端点只发布笔记工具，AI 与它的 agent 回路原本对客户端不可见：
 
@@ -87,6 +99,15 @@ a normal install needs no configuration. One of three operation profiles —
 `readonly`, `authoring` (default) or `full` — is enforced on every `tools/call`,
 and `node node_modules/.bin/dsh-siyuan-bridge --doctor` reports the endpoint,
 the token's origin and the active profile without printing the token.
+
+Opening the harness never starts the app, and neither does a client asking which
+tools exist: the handshake and the catalog are answered locally. With
+`launchOnCall` switched on (`{"launchOnCall": true}` in
+`~/.config/dsh-siyuan/config.json`, or `SIYUAN_LAUNCH_ON_CALL=1`), a real
+`tools/call` brings SiYuan up when it is closed and waits for it. The app is
+started through `/bin/sh` with the environment cleaned of the keys that break a
+Mac app — `__CFBundleIdentifier`, `ELECTRON_*`, `NODE_*` — while the rest of the
+user's environment is kept, so a launcher of their own still works.
 
 
 ## 唯一需要手工填写的值
