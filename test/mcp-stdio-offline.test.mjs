@@ -139,7 +139,9 @@ test('the handshake survives SiYuan being absent, and calls recover when it appe
   try {
     const started = await offline.send(initialize)
     assert.equal(started.error, undefined, `initialize must not fail while SiYuan is closed: ${JSON.stringify(started)}`)
-    assert.equal(started.result?.serverInfo?.name, 'dsh-siyuan')
+    const pkg = JSON.parse(await readFile(join(import.meta.dirname, '..', 'package.json'), 'utf8'))
+    assert.equal(started.result?.serverInfo?.name, pkg.name,
+      'the local handshake identifies this bridge, whatever the package is called')
 
     const listed = await offline.send(listTools(2))
     assert.deepEqual(listed.result.tools.filter((t) => t.name !== 'ai'), TOOLS,

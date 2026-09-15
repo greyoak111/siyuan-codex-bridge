@@ -1,4 +1,4 @@
-# dsh-siyuan bundle patch: brings the local SiYuan (思源笔记) MCP server and its
+# dsh-siyuan-notes bundle patch: brings the local SiYuan (思源笔记) MCP server and its
 # usage skill into a DSH profile.
 #
 # Two rows, and nothing else:
@@ -35,7 +35,7 @@
         transport: stdio
         command: !!js process.execPath
         args:
-          - !!js decodeURIComponent(new URL('node_modules/dsh-siyuan/bridge/mcp-stdio.mjs', ctx.baseUrl).pathname)
+          - !!js decodeURIComponent(new URL('node_modules/dsh-siyuan-notes/bridge/mcp-stdio.mjs', ctx.baseUrl).pathname)
         env:
           ELECTRON_RUN_AS_NODE: '1'
         toolCallTimeoutMs: 120000
@@ -49,4 +49,4 @@
         providerName: dsh-siyuan-skills
         includeDefaultRoots: false
         customSkillDirs:
-          - !!js decodeURIComponent(new URL('node_modules/dsh-siyuan/skills', ctx.baseUrl).pathname)
+          - !!js decodeURIComponent(new URL('node_modules/dsh-siyuan-notes/skills', ctx.baseUrl).pathname)

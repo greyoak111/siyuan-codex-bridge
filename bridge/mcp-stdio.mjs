@@ -328,7 +328,7 @@ function requestIdFromLine(raw) {
 function bridgeIdentity() {
   const pkg = readJsonFile(fileURLToPath(new URL('../package.json', import.meta.url)))
   return {
-    name: typeof pkg?.name === 'string' ? pkg.name : 'dsh-siyuan',
+    name: typeof pkg?.name === 'string' ? pkg.name : 'dsh-siyuan-notes',
     version: typeof pkg?.version === 'string' ? pkg.version : '0.0.0-unknown',
   }
 }

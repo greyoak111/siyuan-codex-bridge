@@ -12,8 +12,9 @@
 
 安装（二选一）：
 
-- DSH 桌面端 → 插件市场搜索 `dsh-siyuan`；
-- 命令行：`dsh plugin --profile web add github:greyoak111/siyuan-codex-bridge`
+- DSH 桌面端 → 插件市场搜索 `siyuan-codex-bridge`（分类 Memory）；
+- 命令行（GitHub 源）：`dsh plugin --profile web add github:greyoak111/siyuan-codex-bridge`
+- 命令行（npm 源，预构建、免 allowBuilds 批准）：`dsh plugin --profile web add dsh-siyuan-notes`
 
 **桥接不会启动思源**：它只通过网络跟 `127.0.0.1:6806` 说话，宿主启动不会连带打开你的笔记应用。
 思源没开时，桥接仍会本地应答 MCP 握手、并提供上一次见到的工具目录，所以工具不会在会话里凭空消失；
