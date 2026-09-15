@@ -56,6 +56,24 @@ node node_modules/.bin/dsh-siyuan-bridge --doctor
 
 状态目录 `~/.config/dsh-siyuan/`：可选的 `config.json`，以及 `audit.jsonl` 审计（只记时间/级别/工具/action/决策，权限 600，不含参数与笔记正文）。插件目录本身不被写入任何东西。
 
+### 发版到 npm（维护者用）
+
+账号的 2FA 是 passkey（指纹），没有一次性密码可填，所以非交互的 `npm publish` 会停在 `EOTP`。
+用 [scripts/publish-npm.sh](./scripts/publish-npm.sh)：
+
+```sh
+# 先在 package.json 里改版本号，提交并打 tag
+bash scripts/publish-npm.sh            # 已发布的版本会被拦下，不会重发
+bash scripts/publish-npm.sh --dry-run  # 只看会发布什么
+```
+
+- `~/.npmrc` 里的 token 还没过期时，一条命令直接发完，**无需任何交互**；
+- 过期时脚本会向 npm 申请一个浏览器批准链接、打印并自动打开，你用指纹批准一次，
+  它自己取回 token、写回 `~/.npmrc` 并继续发布。
+
+当前 npm 包：`dsh-siyuan-notes`（`dsh-siyuan` 是别人的包，且我们的 bundle patch 靠目录名解析自身文件，
+所以那个名字既发不了、也不能共用）。
+
 ### DSH plugin (English)
 
 The same repository is a DeepSeek Harness plugin: `dsh.bundle` in `package.json`
